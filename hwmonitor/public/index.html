@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HW Monitor</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="app.css">
+  <script>
+    try { const t = localStorage.getItem('hwm-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="icon.svg" alt="" width="28" height="28">
+      <div>
+        <strong>HW Monitor</strong>
+        <span id="brand-host">—</span>
+      </div>
+    </div>
+    <nav>
+      <a href="#overview" class="active"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z"/></svg>Overview</a>
+      <a href="#health" style="--c:var(--warn)"><svg viewBox="0 0 24 24"><path d="M12 3 3.8 7v5.2c0 4.4 3.5 7.8 8.2 8.8 4.7-1 8.2-4.4 8.2-8.8V7L12 3Z" fill="none" stroke-width="1.7"/><path d="M8.5 12h2.2l1.3-3 1.6 6 1.2-3h1.2" fill="none" stroke-width="1.7"/></svg>Health &amp; sessions</a>
+      <a href="#gaming" style="--c:var(--gpu)"><svg viewBox="0 0 24 24"><path d="M7 8h10a4 4 0 0 1 3.8 2.8l1 3.5a2.5 2.5 0 0 1-4.1 2.5L15 15H9l-2.7 1.8a2.5 2.5 0 0 1-4.1-2.5l1-3.5A4 4 0 0 1 7 8Z" fill="none" stroke-width="1.7"/><path d="M7 10v4m-2-2h4m6-1h.1m3 2h.1" fill="none" stroke-width="1.7"/></svg>Game mode</a>
+      <a href="#sensors" style="--c:var(--temp)"><svg viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z" fill="none" stroke-width="1.6"/><path d="M12 11v6" fill="none" stroke-width="2"/></svg>Sensors</a>
+      <a href="#cpu" style="--c:var(--cpu)"><svg viewBox="0 0 24 24"><path d="M9 9h6v6H9z"/><path d="M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zm2-3v3m6-3v3M9 20v3m6-3v3M1 9h3m-3 6h3m16-6h3m-3 6h3" fill="none" stroke-width="1.6"/></svg>Processor</a>
+      <a href="#memory" style="--c:var(--mem)"><svg viewBox="0 0 24 24"><path d="M2 7h20v9H2zM5 16v3m4-3v3m6-3v3m4-3v3M6 10v3m4-3v3m4-3v3m4-3v3" fill="none" stroke-width="1.6"/></svg>Memory</a>
+      <a href="#gpu" style="--c:var(--gpu)"><svg viewBox="0 0 24 24"><path d="M2 6h17a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H2zm0 12v3" fill="none" stroke-width="1.6"/><circle cx="13" cy="12" r="3" fill="none" stroke-width="1.6"/></svg>Graphics</a>
+      <a href="#storage" style="--c:var(--disk)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke-width="1.6"/><path d="M7 15h5" fill="none" stroke-width="1.6"/><circle cx="16.5" cy="15" r="1.2"/></svg>Storage</a>
+      <a href="#network" style="--c:var(--net)"><svg viewBox="0 0 24 24"><path d="M12 20V10m-5 5 5 5 5-5M5 8a10 10 0 0 1 14 0M8 11a5.6 5.6 0 0 1 8 0" fill="none" stroke-width="1.6"/></svg>Network</a>
+      <a href="#system" style="--c:var(--sys)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke-width="1.6"/><path d="M7 7h4v4H7zM14 8h3M14 11h3M7 15h10M7 18h6" fill="none" stroke-width="1.6"/></svg>System</a>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="live-dot" id="live-dot"></span>
+      <span id="live-label">Connecting…</span>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div>
+        <h1 id="host">Collecting hardware info…</h1>
+        <p id="subtitle" class="muted">Reading CPU, memory, GPU, storage and network details</p>
+      </div>
+      <div class="actions">
+        <span class="chip" id="uptime" title="System uptime">Uptime —</span>
+        <button class="btn" id="btn-refresh" title="Re-scan hardware specs">
+          <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" fill="none" stroke-width="2"/></svg>Rescan
+        </button>
+        <button class="btn" id="btn-overlay" type="button" aria-label="Toggle hardware monitoring overlay" aria-pressed="false" title="Show always-on-top hardware overlay" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" fill="none" stroke-width="1.8"/><path d="M8 21h8m-4-4v4m1-13h5m-5 3h3" fill="none" stroke-width="1.8"/><rect x="5.5" y="7.5" width="5" height="5" rx="1" fill="none" stroke-width="1.4"/></svg><span>Overlay</span>
+        </button>
+        <button class="btn" id="btn-overlay-config" type="button" hidden>Overlay setup</button>
+        <button class="btn icon" id="btn-theme" title="Toggle theme" aria-label="Toggle theme">
+          <svg viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z" fill="none" stroke-width="2"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section id="overview" class="tiles">
+      <article class="tile" data-k="cpu" style="--c:var(--cpu)">
+        <div class="tile-head"><span>CPU <em class="tile-temp" id="t-cpu-temp" hidden></em></span><b class="tile-val" id="t-cpu">—</b></div>
+        <p class="tile-sub" id="t-cpu-sub">—</p>
+        <canvas class="spark" id="s-cpu"></canvas>
+      </article>
+      <article class="tile" data-k="mem" style="--c:var(--mem)">
+        <div class="tile-head"><span>Memory</span><b class="tile-val" id="t-mem">—</b></div>
+        <p class="tile-sub" id="t-mem-sub">—</p>
+        <canvas class="spark" id="s-mem"></canvas>
+      </article>
+      <article class="tile" data-k="gpu" style="--c:var(--gpu)">
+        <div class="tile-head"><span>GPU <em class="tile-temp" id="t-gpu-temp" hidden></em></span><b class="tile-val" id="t-gpu">—</b></div>
+        <p class="tile-sub" id="t-gpu-sub">—</p>
+        <canvas class="spark" id="s-gpu"></canvas>
+      </article>
+      <article class="tile" data-k="disk" style="--c:var(--disk)">
+        <div class="tile-head"><span>Disk</span><b class="tile-val" id="t-disk">—</b></div>
+        <p class="tile-sub" id="t-disk-sub">—</p>
+        <canvas class="spark" id="s-disk"></canvas>
+      </article>
+      <article class="tile" data-k="net" style="--c:var(--net)">
+        <div class="tile-head"><span>Network</span><b class="tile-val" id="t-net">—</b></div>
+        <p class="tile-sub" id="t-net-sub">—</p>
+        <canvas class="spark" id="s-net"></canvas>
+      </article>
+    </section>
+
+    <section id="health" class="section" style="--c:var(--warn)">
+      <h2><i></i>Health &amp; sessions</h2>
+      <div class="health-grid">
+        <div class="card health-summary">
+          <div class="card-head"><div><h3>System health</h3><p class="muted">Live checks for heat and memory pressure</p></div><span class="chip" id="health-state">Waiting</span></div>
+          <p id="health-guidance" class="health-guidance">Waiting for live readings…</p>
+          <div class="health-metrics" id="health-metrics"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h3>Alert thresholds</h3><p class="muted">An alert appears after 3 consecutive high readings</p></div></div>
+          <form id="threshold-form" class="threshold-grid">
+            <label>CPU temperature <span><input name="cpuTemp" type="number" min="50" max="110" step="1"> °C</span></label>
+            <label>GPU temperature <span><input name="gpuTemp" type="number" min="50" max="110" step="1"> °C</span></label>
+            <label>Memory use <span><input name="memory" type="number" min="50" max="100" step="1"> %</span></label>
+            <label>VRAM use <span><input name="vram" type="number" min="50" max="100" step="1"> %</span></label>
+            <button class="btn" type="submit">Save thresholds</button>
+            <span class="muted" id="threshold-saved" role="status"></span>
+          </form>
+        </div>
+      </div>
+      <div class="health-grid health-lower">
+        <div class="card">
+          <div class="card-head"><div><h3>Monitoring session</h3><p class="muted" id="session-status">No session recorded</p></div></div>
+          <div class="actions session-actions">
+            <button class="btn" id="btn-session-start" type="button">Start recording</button>
+            <button class="btn" id="btn-session-stop" type="button" disabled>Stop</button>
+            <button class="btn" id="btn-session-export" type="button" disabled>Export CSV</button>
+          </div>
+          <div id="session-summary" class="session-summary muted">Start a session to save readings every 10 seconds.</div>
+          <div id="session-history" class="session-history"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h3>Recent alerts</h3><p class="muted">Alerts stay on this device</p></div><button class="btn" id="btn-alerts-clear" type="button">Clear</button></div>
+          <div id="alert-list" class="alert-list"><p class="muted">No alerts yet.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="gaming" class="section" style="--c:var(--gpu)">
+      <h2><i></i>Game mode</h2>
+      <div class="card">
+        <div class="game-controls">
+          <label class="game-picker">Game process<select id="game-process"><option value="">Select a running app</option></select></label>
+          <button class="btn" id="btn-process-refresh" type="button">Refresh apps</button>
+          <button class="btn" id="btn-game-start" type="button" disabled>Start capture</button>
+          <button class="btn" id="btn-game-stop" type="button" disabled>Stop</button>
+        </div>
+        <div class="game-tool-row">
+          <span id="game-tool-status" class="muted">Finding PresentMon…</span>
+          <button class="btn" id="btn-presentmon" type="button">Locate manually</button>
+          <a id="presentmon-download" href="https://github.com/GameTechDev/PresentMon/releases" target="_blank" rel="noreferrer">Get PresentMon</a>
+        </div>
+        <p id="game-message" class="muted" role="status">Select a running game to capture FPS, frame time and 1% low.</p>
+        <div class="game-stats">
+          <div class="stat"><span><i style="--dot:var(--gpu)"></i>FPS</span><b id="game-fps">—</b></div>
+          <div class="stat"><span><i style="--dot:var(--cpu)"></i>Frame time</span><b id="game-frame-time">—</b></div>
+          <div class="stat"><span><i style="--dot:var(--warn)"></i>1% low</span><b id="game-low1">—</b></div>
+          <div class="stat"><span>Performance hint</span><b id="game-diagnosis">—</b></div>
+        </div>
+        <canvas class="chart game-chart" id="c-game" aria-label="Frame time history"></canvas>
+      </div>
+    </section>
+
+    <section id="sensors" class="section" style="--c:var(--temp)">
+      <h2><i></i>Temperatures &amp; fans</h2>
+      <div class="notice" id="sensor-notice" hidden></div>
+      <div class="card" id="temp-chart-card" hidden>
+        <div class="card-head">
+          <div><h3>Temperature history</h3><p class="muted" id="temp-legend"></p></div>
+          <div class="big" id="temp-big">—</div>
+        </div>
+        <canvas class="chart" id="c-temp"></canvas>
+      </div>
+      <div class="sensor-grid" id="sensor-list"><div class="card"><div class="skeleton"></div></div></div>
+    </section>
+
+    <section id="cpu" class="section" style="--c:var(--cpu)">
+      <h2><i></i>Processor</h2>
+      <div class="split">
+        <div class="card" id="cpu-spec"><div class="skeleton"></div></div>
+        <div class="card">
+          <div class="card-head">
+            <div><h3>Utilization</h3><p class="muted" id="cpu-meta">—</p></div>
+            <div class="big" id="cpu-big">—</div>
+          </div>
+          <canvas class="chart" id="c-cpu"></canvas>
+          <h4 class="label">Logical processors</h4>
+          <div class="cores" id="cores"></div>
+          <div class="stats" id="cpu-sens" hidden>
+            <div class="stat"><span><i style="--dot:var(--temp)"></i>Package temp</span><b id="cpu-temp">—</b></div>
+            <div class="stat"><span><i style="--dot:var(--bad)"></i>Hottest core</span><b id="cpu-tmax">—</b></div>
+            <div class="stat"><span><i style="--dot:var(--cpu)"></i>Package power</span><b id="cpu-pow">—</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="memory" class="section" style="--c:var(--mem)">
+      <h2><i></i>Memory</h2>
+      <div class="split">
+        <div class="card" id="mem-spec"><div class="skeleton"></div></div>
+        <div class="card">
+          <div class="card-head">
+            <div><h3>Usage</h3><p class="muted" id="mem-meta">—</p></div>
+            <div class="big" id="mem-big">—</div>
+          </div>
+          <canvas class="chart" id="c-mem"></canvas>
+          <div class="stats" id="mem-stats"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Installed modules</h3>
+        <div class="table-wrap"><table id="mem-table"><tbody><tr><td><div class="skeleton"></div></td></tr></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="gpu" class="section" style="--c:var(--gpu)">
+      <h2><i></i>Graphics</h2>
+      <div id="gpu-list"><div class="card"><div class="skeleton"></div></div></div>
+    </section>
+
+    <section id="storage" class="section" style="--c:var(--disk)">
+      <h2><i></i>Storage</h2>
+      <div class="disk-grid" id="disk-list"><div class="card"><div class="skeleton"></div></div></div>
+    </section>
+
+    <section id="network" class="section" style="--c:var(--net)">
+      <h2><i></i>Network</h2>
+      <div id="net-list"><div class="card"><div class="skeleton"></div></div></div>
+    </section>
+
+    <section id="system" class="section" style="--c:var(--sys)">
+      <h2><i></i>System</h2>
+      <div class="sys-grid" id="sys-list"><div class="card"><div class="skeleton"></div></div></div>
+    </section>
+
+    <footer class="muted">HW Monitor · data from Windows CIM / DXGI · <span id="collected">—</span></footer>
+  </main>
+
+  <dialog id="overlay-dialog" class="settings-dialog" aria-labelledby="overlay-dialog-title">
+    <form method="dialog">
+      <div class="dialog-head"><div><h2 id="overlay-dialog-title">Overlay setup</h2><p class="muted">Choose what stays visible while you work or play.</p></div><button class="btn icon" value="close" aria-label="Close overlay settings">×</button></div>
+      <label class="field-label">Layout profile<select id="overlay-profile"><option value="gaming">Gaming</option><option value="compact">Compact</option><option value="full">All metrics</option><option value="custom">Custom</option></select></label>
+      <p class="muted overlay-profile-note" id="overlay-profile-note">Choose a game in Game mode to remember a separate overlay layout for it.</p>
+      <fieldset class="overlay-options"><legend>Metrics</legend><div id="overlay-metrics" class="overlay-metrics"></div></fieldset>
+      <label class="field-label range-label">Opacity <span><input id="overlay-opacity" type="range" min="55" max="100" step="1"><b id="overlay-opacity-value">94%</b></span></label>
+      <p class="muted dialog-note">Drag the overlay header to move it. Use the × button or press Ctrl+Shift+O to hide it.</p>
+    </form>
+  </dialog>
+  <script src="app.js"></script>
+</body>
+</html>
