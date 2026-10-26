@@ -105,8 +105,6 @@
             <span class="muted" id="threshold-saved" role="status"></span>
           </form>
         </div>
-      </div>
-      <div class="health-grid health-lower">
         <div class="card">
           <div class="card-head"><div><h3>Monitoring session</h3><p class="muted" id="session-status">No session recorded</p></div></div>
           <div class="actions session-actions">
@@ -139,27 +137,32 @@
           <a id="presentmon-download" href="https://github.com/GameTechDev/PresentMon/releases" target="_blank" rel="noreferrer">Get PresentMon</a>
         </div>
         <p id="game-message" class="muted" role="status">Select a running game to capture FPS, frame time and 1% low.</p>
-        <div class="game-stats">
-          <div class="stat"><span><i style="--dot:var(--gpu)"></i>FPS</span><b id="game-fps">—</b></div>
-          <div class="stat"><span><i style="--dot:var(--cpu)"></i>Frame time</span><b id="game-frame-time">—</b></div>
-          <div class="stat"><span><i style="--dot:var(--warn)"></i>1% low</span><b id="game-low1">—</b></div>
-          <div class="stat"><span>Performance hint</span><b id="game-diagnosis">—</b></div>
+        <div class="game-body">
+          <div class="game-stats">
+            <div class="stat"><span><i style="--dot:var(--gpu)"></i>FPS</span><b id="game-fps">—</b></div>
+            <div class="stat"><span><i style="--dot:var(--cpu)"></i>Frame time</span><b id="game-frame-time">—</b></div>
+            <div class="stat"><span><i style="--dot:var(--warn)"></i>1% low</span><b id="game-low1">—</b></div>
+            <div class="stat"><span>Performance hint</span><b id="game-diagnosis">—</b></div>
+          </div>
+          <canvas class="chart game-chart" id="c-game" aria-label="Frame time history"></canvas>
         </div>
-        <canvas class="chart game-chart" id="c-game" aria-label="Frame time history"></canvas>
       </div>
     </section>
 
     <section id="sensors" class="section" style="--c:var(--temp)">
       <h2><i></i>Temperatures &amp; fans</h2>
       <div class="notice" id="sensor-notice" hidden></div>
-      <div class="card" id="temp-chart-card" hidden>
-        <div class="card-head">
-          <div><h3>Temperature history</h3><p class="muted" id="temp-legend"></p></div>
-          <div class="big" id="temp-big">—</div>
+      <!-- #sensor-list uses display:contents so its cards share one grid with the history chart -->
+      <div class="sensor-grid">
+        <div class="card" id="temp-chart-card" hidden>
+          <div class="card-head">
+            <div><h3>Temperature history</h3><p class="muted" id="temp-legend"></p></div>
+            <div class="big" id="temp-big">—</div>
+          </div>
+          <canvas class="chart" id="c-temp"></canvas>
         </div>
-        <canvas class="chart" id="c-temp"></canvas>
+        <div id="sensor-list"><div class="card"><div class="skeleton"></div></div></div>
       </div>
-      <div class="sensor-grid" id="sensor-list"><div class="card"><div class="skeleton"></div></div></div>
     </section>
 
     <section id="cpu" class="section" style="--c:var(--cpu)">
