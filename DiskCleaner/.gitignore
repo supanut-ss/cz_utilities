@@ -1,0 +1,3 @@
+# Build output (rebuild with build\Build-Exe.ps1)
+dist/
+build/obj/
