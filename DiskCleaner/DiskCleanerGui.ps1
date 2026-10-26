@@ -838,6 +838,7 @@ $CategoryIcons = @{
     WindowsLogs = 0xE8A5; ClaudeCache = 0xE99A; ChatGPTCache = 0xE8BD; AIEditorCache = 0xE943; CopilotCache = 0xE99A
     OtherAppCache = 0xE71D; npm = 0xE7B8; Yarn = 0xE7B8; pip = 0xE7B8; NuGet = 0xE7B8; Gradle = 0xE943
     GoBuild = 0xE943; Cargo = 0xE7B8; RecycleBin = 0xE74D; ComponentStore = 0xE90F
+    UpgradeTemp = 0xE896; WindowsOld = 0xE777
 }
 
 $groups = [System.Collections.ObjectModel.ObservableCollection[DiskCleaner.CategoryGroup]]::new()
@@ -875,6 +876,7 @@ function Set-RowStatus($Row, [string]$Status) {
     $kind, $text = switch -Regex ($Status) {
         '^$'                { '', ''; break }
         '^needs admin$'     { 'warn', 'Needs admin'; break }
+        '^restart pending$' { 'warn', 'Restart first'; break }
         '^not found$'       { 'muted', 'Not found'; break }
         '^size n/a$'        { 'muted', 'Size unknown'; break }
         '^(freed|done|moved)' { 'success', ($Status.Substring(0, 1).ToUpper() + $Status.Substring(1)); break }
@@ -1120,7 +1122,7 @@ function Complete-Scan($Job) {
         $row = Get-RowByName $r.Category
         if (-not $row) { continue } # removed while scanning
         # These statuses mean there are no meaningful numbers.
-        $noData = $r.Status -in 'needs admin', 'not found', 'size n/a'
+        $noData = $r.Status -in 'needs admin', 'restart pending', 'not found', 'size n/a'
         $row.Files = if ($noData) { -1 } else { $r.Files }
         $row.Bytes = if ($noData) { -1 } else { $r.Bytes }
         Set-RowStatus $row $r.Status
@@ -1225,7 +1227,15 @@ function Complete-Clean($Job) {
     $recycledTotal = 0
     $keptTotal = 0
     foreach ($row in $Job.Rows) {
-        if ($catByName[$row.Name].CleanCmd) {
+        $cat = $catByName[$row.Name]
+        if ($cat.CleanCmd -and $cat.Skip) {
+            # Nothing there, or blocked (restart pending): not an error.
+            $status = if ($cat.Status) { $cat.Status } else { 'not found' }
+            Set-RowStatus $row $status
+            Write-Log "$($row.Name): skipped ($status)"
+            continue
+        }
+        if ($cat.CleanCmd) {
             $status = if ($cmdStatus[$row.Name]) { $cmdStatus[$row.Name] } else { 'not run' }
             if ($status -ne 'done') { $errors++ }
             Set-RowStatus $row $status

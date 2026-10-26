@@ -38,7 +38,10 @@
     Also clean developer package caches (npm, Yarn, pip, NuGet, Gradle, Go, Cargo).
 
 .PARAMETER Deep
-    Also empty the Recycle Bin and run DISM component store cleanup (admin).
+    Also empty the Recycle Bin, run DISM component store cleanup, and remove Windows upgrade
+    leftovers and Windows.old (admin). Upgrade leftovers and Windows.old are removed through
+    Windows' own Disk Cleanup, and skipped while an update is waiting for a restart.
+    After Windows.old is removed you can no longer go back to the previous Windows version.
 
 .PARAMETER MinAgeDays
     Only delete files not created or modified for this many days. Default 1.
@@ -155,9 +158,10 @@ try {
 
     $targets = New-TargetList -Categories $selected -IsAdmin $isAdmin -CutoffUtc $cutoff
     $needAdmin = @($selected | Where-Object { $_.Status -eq 'needs admin' })
-    $ready = @($selected | Where-Object { $_.Status -ne 'needs admin' })
+    $ready = @($selected | Where-Object { -not $_.Skip })
     $cmdCats = @($ready | Where-Object { $_.CleanCmd })
-    $cmdNames = @($cmdCats | ForEach-Object { $_.Name })
+    # File targets of every command-based category (also skipped ones) are only measured, never deleted.
+    $cmdNames = @($selected | Where-Object { $_.CleanCmd } | ForEach-Object { $_.Name })
     $fileTargets = [DiskCleaner.Target[]]@($targets | Where-Object { $_.Category -notin $cmdNames })
     $sw = [Diagnostics.Stopwatch]::StartNew()
 

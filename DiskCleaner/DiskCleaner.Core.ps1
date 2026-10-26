@@ -537,12 +537,13 @@ function New-Category {
         [bool]$NoAge = $false,
         [scriptblock]$CleanCmd = $null,
         [bool]$RunFirst = $false, # run CleanCmd before files are deleted
-        [bool]$Recycle = $false   # move files to the Recycle Bin instead of deleting them
+        [bool]$Recycle = $false,  # move files to the Recycle Bin instead of deleting them
+        [scriptblock]$Blocker = $null # returns a reason (e.g. 'restart pending') when it must not run now
     )
     [pscustomobject]@{
         Name = $Name; Group = $Group; Paths = @($Paths | Where-Object { $_ }); Description = $Description
         Filter = $Filter; Recurse = $Recurse; Admin = $Admin; Services = $Services; NoAge = $NoAge
-        CleanCmd = $CleanCmd; RunFirst = $RunFirst; Recycle = $Recycle; Status = ''
+        CleanCmd = $CleanCmd; RunFirst = $RunFirst; Recycle = $Recycle; Blocker = $Blocker; Status = ''; Skip = $false
     }
 }
 
@@ -661,6 +662,24 @@ function Get-CleanerCategory {
             dism.exe /Online /Cleanup-Image /StartComponentCleanup
             if ($LASTEXITCODE) { throw "DISM exit code $LASTEXITCODE" }
         }
+
+        # Upgrade leftovers are owned by TrustedInstaller/SYSTEM, so they are removed through Windows'
+        # own Disk Cleanup handlers (the same ones Settings > Storage uses), never deleted directly,
+        # and never while an update or upgrade is waiting for a restart.
+        New-Category UpgradeTemp Deep @("$env:SystemDrive\`$WINDOWS.~BT", "$env:SystemDrive\`$WINDOWS.~WS", "$env:SystemDrive\`$GetCurrent") `
+            'Leftovers of Windows upgrades and Update Assistant ($WINDOWS.~BT, $GetCurrent, setup logs)' -Admin $true -NoAge $true `
+            -Blocker { if (Test-UpdatePending) { 'restart pending' } } -CleanCmd {
+                if (Test-UpdatePending) { throw 'Windows is waiting for a restart to finish an update; restart first.' }
+                Invoke-DiskCleanupHandler 'Temporary Setup Files', 'Windows Upgrade Log Files', 'Setup Log Files'
+                $getCurrent = "$env:SystemDrive\`$GetCurrent" # Update Assistant download; no Disk Cleanup handler
+                if (Test-Path -LiteralPath $getCurrent) { Remove-Item -LiteralPath $getCurrent -Recurse -Force }
+            }
+        New-Category WindowsOld  Deep @("$env:SystemDrive\Windows.old") `
+            'Previous Windows installation - you can no longer go back to it afterwards' -Admin $true -NoAge $true `
+            -Blocker { if (Test-UpdatePending) { 'restart pending' } } -CleanCmd {
+                if (Test-UpdatePending) { throw 'Windows is waiting for a restart to finish an update; restart first.' }
+                Invoke-DiskCleanupHandler 'Previous Installations'
+            }
     )
 }
 
@@ -738,6 +757,35 @@ function Get-RecycleBinLimit([string]$Path) {
     [long]($drive.TotalSize * 0.05) # Windows' default size when the user never changed it
 }
 
+# True while Windows is mid-update: a restart is pending, or setup is running. Upgrade leftovers
+# must not be touched then.
+function Test-UpdatePending {
+    (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+    (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
+    [bool](Get-Process SetupHost, SetupPrep, WindowsUpdateBox -ErrorAction SilentlyContinue)
+}
+
+# Runs Windows' Disk Cleanup (cleanmgr) for just these handlers, unattended. A handler is enabled
+# for our own run profile only for the duration of the run, then the setting is removed again.
+function Invoke-DiskCleanupHandler([string[]]$Handlers) {
+    $key = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches'
+    $flag = 'StateFlags0777'
+    $enabled = @()
+    try {
+        foreach ($h in $Handlers) {
+            if (Test-Path -LiteralPath "$key\$h") {
+                Set-ItemProperty -LiteralPath "$key\$h" -Name $flag -Value 2 -Type DWord
+                $enabled += $h
+            }
+        }
+        if (-not $enabled) { throw "Windows Disk Cleanup handlers not found: $($Handlers -join ', ')" }
+        $p = Start-Process "$env:windir\System32\cleanmgr.exe" -ArgumentList '/sagerun:777' -Wait -PassThru -WindowStyle Hidden
+        if ($p.ExitCode) { throw "Disk Cleanup exit code $($p.ExitCode)" }
+    } finally {
+        foreach ($h in $enabled) { Remove-ItemProperty -LiteralPath "$key\$h" -Name $flag -ErrorAction SilentlyContinue }
+    }
+}
+
 function Get-FreeBytes {
     [long](([IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' -and $_.IsReady } |
         Measure-Object -Property TotalFreeSpace -Sum).Sum)
@@ -751,7 +799,14 @@ function New-TargetList {
     $roots = [System.Collections.Generic.List[string]]::new()
     foreach ($c in $Categories) {
         $c.Status = ''
-        if ($c.Admin -and -not $IsAdmin) { $c.Status = 'needs admin'; continue }
+        $c.Skip = $false
+        if ($c.Admin -and -not $IsAdmin) { $c.Status = 'needs admin'; $c.Skip = $true; continue }
+        if ($c.Blocker) {
+            $reason = & ([scriptblock]::Create($c.Blocker.ToString()))
+            if ($reason) { $c.Status = [string]$reason; $c.Skip = $true; continue }
+        }
+        # Command-based categories with paths (Recycle Bin, Windows.old, ...) have nothing to do when absent.
+        if ($c.CleanCmd -and $c.Paths.Count -and -not @(Resolve-CategoryPath $c).Count) { $c.Skip = $true }
         foreach ($root in @(Resolve-CategoryPath $c)) {
             $root = $root.TrimEnd('\')
             if (-not (Test-SafeRoot $root)) { Write-Warning "Refusing protected path: $root"; continue }
@@ -790,7 +845,7 @@ function Get-Report([object[]]$Selected, [object[]]$Targets) {
         $ts = @($Targets | Where-Object { $_.Category -eq $c.Name })
         $notRecycled = [long](($ts | Measure-Object -Property NotRecycled -Sum).Sum)
         $status = $c.Status
-        if (-not $status -and -not $ts.Count) { $status = if ($c.CleanCmd) { 'size n/a' } else { 'not found' } }
+        if (-not $status -and -not $ts.Count) { $status = if ($c.CleanCmd -and -not $c.Paths.Count) { 'size n/a' } else { 'not found' } }
         if (-not $status -and $c.Recycle) {
             $status = 'to Recycle Bin'
             if ($notRecycled) { $status += ", $notRecycled kept (too large or path too long)" }
@@ -819,11 +874,11 @@ function Invoke-Clean {
         [hashtable]$Progress = @{}
     )
     $result = @{}
-    $commands = @($Categories | Where-Object { $_.CleanCmd })
+    $commands = @($Categories | Where-Object { $_.CleanCmd -and -not $_.Skip })
     foreach ($c in @($commands | Where-Object { $_.RunFirst })) { Invoke-CleanCommand $c $result $Progress }
 
     $stopped = [System.Collections.Generic.List[string]]::new()
-    $services = @($Categories | ForEach-Object { $_.Services } | Select-Object -Unique)
+    $services = @($Categories | Where-Object { -not $_.Skip } | ForEach-Object { $_.Services } | Select-Object -Unique)
     try {
         if ($services) { $Progress.Phase = 'Stopping services' }
         foreach ($name in $services) {
@@ -914,7 +969,7 @@ function Get-SpaceHint {
         }
     } catch { }
     if ([IO.Directory]::Exists("$env:SystemDrive\Windows.old")) {
-        'Windows.old exists: Settings > System > Storage > Temporary files > Previous Windows installation(s).'
+        'Windows.old (previous Windows) exists: tick WindowsOld under Deep clean (admin) to remove it - you can no longer go back afterwards.'
     }
     $vhdx = Get-ChildItem -Path "$L\Packages\*\LocalState\*.vhdx", "$L\wsl\*\*.vhdx", "$L\Docker\wsl\*\*.vhdx" -Force -ErrorAction SilentlyContinue
     foreach ($v in $vhdx) {

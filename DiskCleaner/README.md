@@ -63,6 +63,10 @@ to run the window app straight from the scripts.
   cleanup, Delivery Optimization) are skipped unless run elevated — the app
   never asks for elevation on its own; you choose via "Restart as
   administrator".
+- **Windows upgrade leftovers and `Windows.old` are never deleted directly** —
+  they go through Windows' own Disk Cleanup handlers (`cleanmgr /sagerun`, the
+  same ones Settings > Storage uses), and are skipped (status *Restart first*)
+  while an update is waiting for a restart or Windows setup is running.
 - **AI model files are never deleted** — large local models (Ollama, LM
   Studio, Hugging Face cache) only show up as a hint with the command to
   remove them yourself.
@@ -90,6 +94,8 @@ to run the window app straight from the scripts.
 | npm, Yarn, pip, NuGet, Gradle, GoBuild, Cargo | Developer caches | Package manager caches |
 | RecycleBin | Deep clean | Everything already in the Recycle Bin (any age) |
 | ComponentStore *(admin)* | Deep clean | Superseded Windows components via DISM (slow) |
+| UpgradeTemp *(admin)* | Deep clean | Upgrade leftovers: `$WINDOWS.~BT`, `$WINDOWS.~WS`, `$GetCurrent`, setup logs |
+| WindowsOld *(admin)* | Deep clean | Previous Windows installation — you can no longer roll back afterwards |
 | Custom | Custom folders | Folders or whole non-system drives you add (junk only) |
 
 AI app and other-app caches are found at runtime (not a fixed list): any
@@ -155,7 +161,7 @@ DiskCleaner.exe --cli [options]      # from the built exe (needs start /wait
 | `-Force` | Skip the confirmation and the separate scan pass |
 | `-AiApps` | Also clean AI app caches |
 | `-DevCaches` | Also clean npm/Yarn/pip/NuGet/Gradle/Go/Cargo caches |
-| `-Deep` | Also empty the Recycle Bin and run DISM cleanup (admin) |
+| `-Deep` | Also empty the Recycle Bin, run DISM cleanup, remove upgrade leftovers and `Windows.old` (admin) |
 | `-MinAgeDays <n>` | Only files untouched for `n` days (default 1) |
 | `-Only <names>` | Restrict to these category names, comma-separated |
 | `-ExtraPath <folders>` | Also search these folders or drives for junk only; → Recycle Bin by default |

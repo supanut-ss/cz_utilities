@@ -124,6 +124,30 @@ try {
     Assert-True 'RunFirst command runs before files are cleaned' ((Get-Content $before) -eq 'True')
     Assert-True 'Other commands run after files are cleaned'     ((Get-Content $after) -eq 'False')
 
+    # A blocked category (restart pending) and a command category whose paths are absent never run.
+    $blockedRan = Join-Path $TestRoot 'blocked-ran.txt'; $absentRan = Join-Path $TestRoot 'absent-ran.txt'
+    $blocked = New-Category Blocked Deep @($recycle) 'probe' -Blocker { 'restart pending' } `
+        -CleanCmd ([scriptblock]::Create("Set-Content -LiteralPath '$blockedRan' x"))
+    $absent = New-Category Absent Deep @("$TestRoot\no-such-folder") 'probe' `
+        -CleanCmd ([scriptblock]::Create("Set-Content -LiteralPath '$absentRan' x"))
+    $targets = New-TargetList -Categories @($blocked, $absent) -IsAdmin $true -CutoffUtc ([DateTime]::UtcNow)
+    $result = Invoke-Clean -Targets $targets.ToArray() -Categories @($blocked, $absent) -Threads 2 *>&1 | Select-Object -Last 1
+    Assert-True 'Blocker: status is set and the category is skipped' ($blocked.Status -eq 'restart pending' -and $blocked.Skip -and -not $targets.Count)
+    Assert-True 'Blocker: its command does not run'               (-not (Test-Path $blockedRan) -and -not $result.ContainsKey('Blocked'))
+    Assert-True 'Absent paths: command category is skipped'       ($absent.Skip -and -not (Test-Path $absentRan))
+    $report = @(Get-Report @($blocked, $absent) $targets)
+    Assert-True 'Absent paths: reported as not found'             ($report[1].Status -eq 'not found') $report[1].Status
+
+    # The upgrade categories: admin-only, guarded, and never deleted by the file engine.
+    $cats = @(Get-CleanerCategory)
+    $upgrade = @($cats | Where-Object { $_.Name -in 'UpgradeTemp', 'WindowsOld' })
+    Assert-True 'Upgrade categories exist, admin-only with a blocker' ($upgrade.Count -eq 2 -and -not ($upgrade | Where-Object { -not $_.Admin -or -not $_.Blocker -or -not $_.CleanCmd }))
+    [void](New-TargetList -Categories $upgrade -IsAdmin $false -CutoffUtc ([DateTime]::UtcNow))
+    Assert-True 'Upgrade categories need admin'                   (-not ($upgrade | Where-Object { $_.Status -ne 'needs admin' -or -not $_.Skip }))
+    Assert-True 'Test-UpdatePending returns a bool'               ((Test-UpdatePending) -is [bool])
+    $threw = try { Invoke-DiskCleanupHandler 'No Such Handler 12345'; $false } catch { $_.Exception.Message -match 'not found' }
+    Assert-True 'Unknown Disk Cleanup handler throws, nothing runs' $threw
+
     # The command line embedded in DiskCleaner.exe (--cli), through redirected output.
     if ($Exe) {
         function Invoke-ExeCli([string]$Arguments, [string]$Stdin) {
