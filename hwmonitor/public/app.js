@@ -32,6 +32,7 @@ for (const [key, defaultValue] of Object.entries(DEFAULT_THRESHOLDS)) {
 }
 const readArray = (key) => { const value = readStored(key, []); return Array.isArray(value) ? value : []; };
 let alertHistory = readArray('hwm-alerts').slice(0, 40);
+let toastsEnabled = readStored('hwm-toasts', true) !== false;
 let sessionHistory = readArray('hwm-sessions').slice(0, 8);
 let activeSession = null;
 let sessionTimer = null;
@@ -839,6 +840,11 @@ function updateHealth() {
         alertHistory = alertHistory.slice(0, 40);
         persist('hwm-alerts', alertHistory);
         renderAlertHistory();
+        // The desktop app shows it as a Windows notification, which still reaches you while it sits in the tray
+        if (host && toastsEnabled) {
+          const unit = key === 'cpuTemp' || key === 'gpuTemp' ? '°C' : '%';
+          host.postMessage({ type: 'toast', title: title, body: `${Number(value.toFixed(0))}${unit} (limit ${limit}${unit}). ${advice}` });
+        }
       }
     } else if (value < limit - 3) {
       alertCounts[key] = 0;
@@ -947,9 +953,14 @@ function exportSessionCsv() {
 function initHealthUi() {
   const form = $('threshold-form');
   for (const key of Object.keys(DEFAULT_THRESHOLDS)) form.elements[key].value = thresholds[key];
+  // Notifications only exist in the desktop app, so the option is hidden in the browser build
+  form.elements.toasts.checked = toastsEnabled;
+  form.querySelector('.toast-option').hidden = !host;
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     for (const key of Object.keys(DEFAULT_THRESHOLDS)) thresholds[key] = Number(form.elements[key].value) || DEFAULT_THRESHOLDS[key];
+    toastsEnabled = form.elements.toasts.checked;
+    persist('hwm-toasts', toastsEnabled);
     persist('hwm-thresholds', thresholds);
     Object.keys(alertCounts).forEach((key) => { alertCounts[key] = 0; activeAlerts.delete(key); });
     setText('threshold-saved', 'Saved on this device');

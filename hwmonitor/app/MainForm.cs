@@ -108,6 +108,7 @@ internal sealed class MainForm : Form
             Visible = true,
         };
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowFromTray(); };
+        tray.BalloonTipClicked += (_, _) => ShowFromTray();
 
         // schtasks is slow-ish; read the startup state off the UI thread
         _ = Task.Run(() =>
@@ -133,6 +134,16 @@ internal sealed class MainForm : Form
         _tray.ShowBalloonTip(3000, "HW Monitor is still running",
             "Monitoring continues in the tray. Right-click the icon to exit.", ToolTipIcon.Info);
     }
+
+    /// <summary>Shows a threshold alert as a Windows notification; clicking it opens the dashboard.</summary>
+    private void ShowAlertToast(string? title, string? body)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return;
+        // Windows truncates balloon titles at 63 and text at 255 characters
+        _tray.ShowBalloonTip(10_000, Truncate(title, 63), Truncate(body ?? "", 255), ToolTipIcon.Warning);
+    }
+
+    private static string Truncate(string text, int max) => text.Length <= max ? text : text[..(max - 1)] + "…";
 
     private void ShowFromTray()
     {
@@ -264,6 +275,10 @@ internal sealed class MainForm : Form
 
             case "theme":
                 SetDarkTitleBar(msg.GetProperty("dark").GetBoolean());
+                break;
+
+            case "toast":
+                ShowAlertToast(msg.GetProperty("title").GetString(), msg.GetProperty("body").GetString());
                 break;
 
             case "overlay-toggle":
