@@ -216,9 +216,9 @@ internal sealed class MainForm : Form
             return;
         }
 
+        // Show without activating so the hotkey never pulls focus away from a game
         _overlay.Show();
         _overlay.BringToFront();
-        _overlay.Activate();
     }
 
     private sealed record GameProcess(int Id, string Name, string Title);
