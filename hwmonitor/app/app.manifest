@@ -3,8 +3,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- Starts unelevated; the dashboard offers "Restart as administrator" for CPU/board sensors -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+        <!-- CPU MSRs and Super I/O sensors (via PawnIO) need admin rights, so always elevate -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

@@ -682,17 +682,10 @@ function updateSensorRow(id, s) {
 let noticeHtml = '';
 function renderSensorNotice(d) {
   const msgs = [];
-  if (d.missing) {
-    msgs.push('The temperature sensor helper is not built. Run <code>sensors\\build.cmd</code> (needs the .NET 10 SDK), then restart HW Monitor.');
-  } else {
-    if (!d.admin) {
-      msgs.push(host
-        ? 'CPU, motherboard and drive sensors need administrator rights. GPU sensors work without it. <button class="btn" data-action="elevate">Restart as administrator</button>'
-        : 'CPU, motherboard and drive sensors need administrator rights. Open <code>HW Monitor (Admin).cmd</code> instead. GPU sensors work without it.');
-    }
-    if (d.error) msgs.push(`Sensor library error: ${esc(d.error)}`);
-    if (!d.pawnIo) msgs.push('LibreHardwareMonitor reads CPU and motherboard sensors through the <b>PawnIO</b> driver. HW Monitor will try to install it with winget; restart HW Monitor after installation. If the driver is still missing, run <code>winget install namazso.PawnIO</code> manually.');
-  }
+  // The app always runs elevated and installs PawnIO at startup, so these only show when something went wrong
+  if (!d.admin) msgs.push('HW Monitor is not running as administrator, so CPU, motherboard and drive sensors are unavailable.');
+  if (!d.pawnIo) msgs.push('The <b>PawnIO</b> driver is not installed, so CPU and motherboard sensors are unavailable. Restart HW Monitor to install it.');
+  if (d.error) msgs.push(`Sensor library error: ${esc(d.error)}`);
   const html = msgs.length
     ? `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke-width="1.8"/><path d="M12 8v5m0 3v.5" fill="none" stroke-width="2"/></svg><div>${msgs.map((m) => `<p>${m}</p>`).join('')}</div>`
     : '';
@@ -1267,9 +1260,6 @@ function initTheme() {
     colorCache = {};
     charts.forEach((c) => c.draw());
     syncHost();
-  });
-  $('sensor-notice').addEventListener('click', (e) => {
-    if (e.target.closest('[data-action="elevate"]')) host?.postMessage({ type: 'elevate' });
   });
 }
 

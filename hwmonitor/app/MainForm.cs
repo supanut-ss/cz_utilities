@@ -8,7 +8,6 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
-using Microsoft.Win32;
 
 namespace HWMonitor;
 
@@ -38,7 +37,7 @@ internal sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = Collectors.IsAdmin ? "HW Monitor (Administrator)" : "HW Monitor";
+        Text = "HW Monitor";
         Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
         BackColor = DarkBg;
         StartPosition = FormStartPosition.CenterScreen;
@@ -49,48 +48,12 @@ internal sealed class MainForm : Form
 
         _collectors = new Collectors(Post);
         Load += async (_, _) => await InitWebViewAsync();
-        Shown += (_, _) => _ = EnsurePawnIoInstalledAsync();
         FormClosed += (_, _) =>
         {
             StopGameCapture(notify: false);
             _overlay?.Dispose();
             _collectors.Dispose();
         };
-    }
-
-    private static async Task EnsurePawnIoInstalledAsync()
-    {
-        using (var service = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\PawnIO"))
-        {
-            if (service is not null) return;
-        }
-
-        try
-        {
-            var startInfo = new ProcessStartInfo("winget")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-            };
-            foreach (var argument in new[]
-            {
-                "install", "--id", "namazso.PawnIO", "--exact",
-                "--accept-source-agreements", "--accept-package-agreements", "--silent",
-            })
-                startInfo.ArgumentList.Add(argument);
-
-            using var process = Process.Start(startInfo);
-            if (process is not null) await process.WaitForExitAsync();
-        }
-        catch (Win32Exception)
-        {
-            // Winget is unavailable or the package installer could not be started.
-        }
-        catch (InvalidOperationException)
-        {
-            // Keep the dashboard available if the install process cannot be monitored.
-        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -118,10 +81,9 @@ internal sealed class MainForm : Form
 
     private async Task InitWebViewAsync()
     {
-        // Separate profiles: an elevated and a normal WebView2 cannot share one user-data folder
+        // Always elevated (see app.manifest); "-admin" keeps it apart from profiles made by older unelevated builds
         var dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "HWMonitor", Collectors.IsAdmin ? "WebView2-admin" : "WebView2");
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HWMonitor", "WebView2-admin");
         try
         {
             var env = await CoreWebView2Environment.CreateAsync(null, dataDir);
@@ -187,10 +149,6 @@ internal sealed class MainForm : Form
                 var refresh = msg.TryGetProperty("refresh", out var r) && r.GetBoolean();
                 try { Post("specs", await _collectors.GetSpecsAsync(refresh)); }
                 catch (Exception ex) { Post("specs-error", JsonSerializer.Serialize(new { error = ex.Message })); }
-                break;
-
-            case "elevate":
-                RestartAsAdmin();
                 break;
 
             case "theme":
@@ -565,7 +523,7 @@ internal sealed class MainForm : Form
             var exitCode = process.ExitCode;
             var detail = string.Join(" ", errors.TakeLast(3));
             var friendlyError = detail.Contains("access denied", StringComparison.OrdinalIgnoreCase)
-                ? "PresentMon access was denied. Restart HW Monitor as administrator or add your account to Performance Log Users."
+                ? "PresentMon access was denied. Add your account to Performance Log Users and try again."
                 : !string.IsNullOrWhiteSpace(detail) ? $"PresentMon: {detail}"
                 : !hasHeader ? "No frame data was received. Confirm the selected app is running and rendering frames."
                 : exitCode != 0 ? $"PresentMon exited with code {exitCode}."
@@ -716,19 +674,6 @@ internal sealed class MainForm : Form
             if (_pageReady && _web.CoreWebView2 is { } core)
                 core.PostWebMessageAsJson($"{{\"event\":{JsonSerializer.Serialize(evt)},\"data\":{json}}}");
         });
-    }
-
-    private void RestartAsAdmin()
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, Verb = "runas" });
-            Close();
-        }
-        catch (Win32Exception)
-        {
-            // UAC prompt declined: keep running unelevated
-        }
     }
 
     [DllImport("dwmapi.dll")]

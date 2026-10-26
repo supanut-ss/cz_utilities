@@ -7,7 +7,8 @@ Live hardware monitor for Windows with full component specs, temperatures and fa
 **`release\feature-build\HWMonitor.exe`** — the latest single-file Windows app (WinForms + WebView2) with LibreHardwareMonitor built in. No Node.js or server needed. `app\publish.cmd` builds the standard `release\HWMonitor.exe` output.
 
 - Requires the .NET 10 Desktop Runtime and the Edge WebView2 Runtime (included with Windows 11).
-- Starts maximized without admin rights; the Sensors notice has a **Restart as administrator** button for CPU, motherboard and drive sensors. HW Monitor attempts to install PawnIO with winget when it is missing.
+- Always runs as administrator (UAC prompt on launch) and starts maximized.
+- Requires the PawnIO driver: if it is missing, a setup dialog installs it with winget before the dashboard opens. If the install fails the dialog offers Retry, the download page, or Exit; the app does not start without it.
 - **Overlay setup** offers Gaming, Compact and All metrics profiles, custom sensor selection and opacity. The borderless overlay has a rounded, draggable header and a hide button; custom layouts are saved per selected game, and **Ctrl+Shift+O** toggles the overlay.
 - **Health & sessions** checks CPU/GPU temperature and memory/VRAM pressure, records an alert after three high readings, saves readings every 10 seconds during a session, and exports the session as CSV.
 - **Game mode** captures FPS, frame time and 1% low for a selected running app through PresentMon. HW Monitor detects an existing console executable or downloads the latest official x64 CLI to the user profile and checks its published SHA-256 digest; use **Locate manually** if automatic setup is unavailable. Capture may need administrator rights or membership in the Windows **Performance Log Users** group.
@@ -27,7 +28,7 @@ Read by `sensors/` — a small .NET helper around [LibreHardwareMonitorLib](http
 
 - Build it once with `sensors\build.cmd` (output: `sensors\dist\HwSensors.exe`). Without it the dashboard still works, just without the Sensors data.
 - **GPU** temperature, hot spot, fan RPM and power work without admin rights (vendor APIs).
-- **CPU, motherboard (Super I/O fans) and drive** sensors need the app/server to run elevated **and** the [PawnIO](https://pawnio.eu) driver installed. HW Monitor attempts `winget install namazso.PawnIO` at launch when the driver is missing; restart HW Monitor after installation so LibreHardwareMonitor can load it. LibreHardwareMonitor 0.9.6+ uses PawnIO instead of the old WinRing0 driver. The dashboard shows a notice when either requirement is missing.
+- **CPU, motherboard (Super I/O fans) and drive** sensors need the app/server to run elevated **and** the [PawnIO](https://pawnio.eu) driver installed. The desktop app runs elevated and installs PawnIO (`winget install namazso.PawnIO`) before opening, so both are always met there. LibreHardwareMonitor 0.9.6+ uses PawnIO instead of the old WinRing0 driver. The dashboard shows a notice when either requirement is missing.
 
 ## What it shows
 

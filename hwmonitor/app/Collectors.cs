@@ -5,7 +5,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using LibreHardwareMonitor.Hardware;
-using Microsoft.Win32;
 
 namespace HWMonitor;
 
@@ -142,8 +141,7 @@ internal sealed class Collectors : IDisposable
 
     private void SensorLoop()
     {
-        // LibreHardwareMonitor 0.9.6+ reads CPU MSRs and Super I/O chips through the PawnIO driver
-        var hasPawnIo = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\PawnIO") is not null;
+        var hasPawnIo = PawnIo.IsInstalled;
         var computer = new Computer
         {
             IsCpuEnabled = true,

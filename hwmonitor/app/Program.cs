@@ -6,6 +6,8 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
+        // PawnIO must be present before LibreHardwareMonitor opens its devices
+        if (!PawnIo.EnsureInstalled()) return;
         Application.Run(new MainForm());
     }
 }
