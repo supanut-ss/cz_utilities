@@ -20,6 +20,10 @@ internal sealed class Collectors : IDisposable
     private static readonly HashSet<SensorType> WantedSensors =
         [SensorType.Temperature, SensorType.Fan, SensorType.Control, SensorType.Power];
 
+    // Drives also report wear (Level), usage (Data, in GB) and power-on hours (Factor)
+    private static readonly HashSet<SensorType> StorageSensors =
+        [.. WantedSensors, SensorType.Level, SensorType.Data, SensorType.Factor];
+
     private readonly Action<string, string> _post;
     private readonly Dictionary<string, string> _latest = [];
     private readonly CancellationTokenSource _cts = new();
@@ -33,6 +37,7 @@ internal sealed class Collectors : IDisposable
     {
         StartLive();
         new Thread(SensorLoop) { IsBackground = true, Name = "LHM sensors" }.Start();
+        new Thread(ProcessLoop) { IsBackground = true, Name = "Top processes" }.Start();
         _ = GetSpecsAsync(refresh: false); // warm the cache while the page loads
     }
 
@@ -137,6 +142,77 @@ internal sealed class Collectors : IDisposable
         _liveProc = proc;
     }
 
+    // ---------- Top processes ----------
+
+    private const int TopCount = 8;
+    private const int ProcessIntervalMs = 3000;
+    private volatile bool _watchProcesses = true;
+
+    /// <summary>Sampling every process is not free, so MainForm turns it off while the window is hidden in the tray.</summary>
+    public bool WatchProcesses
+    {
+        get => _watchProcesses;
+        set => _watchProcesses = value;
+    }
+
+    private void ProcessLoop()
+    {
+        var previous = new Dictionary<int, TimeSpan>();
+        var lastSample = Stopwatch.GetTimestamp();
+
+        while (!_cts.IsCancellationRequested)
+        {
+            if (!_watchProcesses)
+            {
+                previous.Clear(); // stale after a pause; the next sample then starts from zero
+                _cts.Token.WaitHandle.WaitOne(500);
+                continue;
+            }
+
+            var now = Stopwatch.GetTimestamp();
+            var elapsed = Stopwatch.GetElapsedTime(lastSample, now).TotalSeconds;
+            lastSample = now;
+
+            var current = new Dictionary<int, TimeSpan>();
+            var groups = new Dictionary<string, (double Cpu, long Bytes, int Count)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var process in Process.GetProcesses())
+            {
+                using (process)
+                {
+                    if (process.Id == 0) continue; // System Idle Process would read as ~100% CPU
+                    double cpu = 0;
+                    long bytes = 0;
+                    try { bytes = process.WorkingSet64; }
+                    catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { }
+                    try
+                    {
+                        var time = process.TotalProcessorTime;
+                        current[process.Id] = time;
+                        if (previous.TryGetValue(process.Id, out var before) && elapsed > 0)
+                            cpu = Math.Max(0, (time - before).TotalSeconds) / elapsed / Environment.ProcessorCount * 100;
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { }
+
+                    var name = process.ProcessName;
+                    groups[name] = groups.TryGetValue(name, out var g)
+                        ? (g.Cpu + cpu, g.Bytes + bytes, g.Count + 1)
+                        : (cpu, bytes, 1);
+                }
+            }
+            previous = current;
+
+            Publish("procs", JsonSerializer.Serialize(new
+            {
+                cpu = groups.OrderByDescending(g => g.Value.Cpu).Take(TopCount)
+                    .Select(g => new { name = g.Key, value = Math.Round(g.Value.Cpu, 1), count = g.Value.Count }),
+                mem = groups.OrderByDescending(g => g.Value.Bytes).Take(TopCount)
+                    .Select(g => new { name = g.Key, bytes = g.Value.Bytes, count = g.Value.Count }),
+            }));
+
+            _cts.Token.WaitHandle.WaitOne(ProcessIntervalMs);
+        }
+    }
+
     // ---------- LibreHardwareMonitor ----------
 
     private void SensorLoop()
@@ -176,8 +252,9 @@ internal sealed class Collectors : IDisposable
     {
         try { hw.Update(); } catch { return; }
 
+        var wanted = hw.HardwareType == HardwareType.Storage ? StorageSensors : WantedSensors;
         var sensors = hw.Sensors
-            .Where(s => WantedSensors.Contains(s.SensorType) && s.Value is float v && !float.IsNaN(v))
+            .Where(s => wanted.Contains(s.SensorType) && s.Value is float v && !float.IsNaN(v))
             .Select(s => new
             {
                 type = s.SensorType.ToString(),

@@ -400,6 +400,18 @@ function renderDisks(disks) {
       ])}
       ${specRows([['Disk', `#${d.index}`], ['Capacity', `${fmtDrive(d.size)} (${fmtBytes(d.size)})`], ['Firmware', d.firmware], ['Serial', d.serial]])}
       ${vols}
+      <div class="disk-health" id="disk-health-${d.index}" hidden>
+        <h4 class="label">Drive health</h4>
+        <div class="vol">
+          <div class="row"><b>Life remaining</b><span id="dh-life-txt-${d.index}">—</span></div>
+          <div class="bar" id="dh-life-${d.index}" style="--c:var(--ok)"><div></div></div>
+        </div>
+        <div class="stats">
+          <div class="stat"><span>Data written</span><b id="dh-written-${d.index}">—</b></div>
+          <div class="stat"><span>Power-on time</span><b id="dh-hours-${d.index}">—</b></div>
+          <div class="stat" id="dh-spare-box-${d.index}"><span>Spare blocks</span><b id="dh-spare-${d.index}">—</b></div>
+        </div>
+      </div>
       <div class="io">
         <div class="stat"><span>Active</span><b id="disk-act-${d.index}">—</b></div>
         <div class="stat"><span><i style="--dot:var(--disk)"></i>Read</span><b id="disk-r-${d.index}">—</b></div>
@@ -620,8 +632,17 @@ const HEADLINE_TEMPS = ['CPU Package', 'Core (Tctl/Tdie)', 'Core (Tctl)', 'Core 
 const fmtTemp = (t) => (t == null ? '—' : `${t.toFixed(0)} °C`);
 
 // Hide per-core TjMax distances, and power rails / fan controls that never left 0 (no driver access or unsupported)
-const visibleSensors = (h) => h.sensors.filter((s) =>
-  !/distance to tjmax/i.test(s.name) && !((s.type === 'Power' || s.type === 'Control') && !s.max));
+// Super I/O chips list every channel, connected or not: a fan that has never spun (and its control), or a
+// temperature that has never left 0, is an unused header and only adds noise.
+const visibleSensors = (h) => {
+  const deadFans = new Set(h.sensors.filter((s) => s.type === 'Fan' && !s.value && !s.max).map((s) => s.name));
+  return h.sensors.filter((s) =>
+    !/distance to tjmax|^(warning|critical) temperature$/i.test(s.name)
+    && !((s.type === 'Power' || s.type === 'Control') && !s.max)
+    && !(s.type === 'Fan' && deadFans.has(s.name))
+    && !(s.type === 'Control' && deadFans.has(s.name))
+    && !(s.type === 'Temperature' && !s.value && !s.max));
+};
 const findSensor = (h, type, names) => {
   if (!h) return null;
   for (const n of names) {
@@ -637,10 +658,10 @@ function headlineTemp(h) {
   return temps.length ? Math.max(...temps) : null;
 }
 
-function sensorRow(id, s) {
+function sensorRow(id, s, label = s.name) {
   const unit = { Temperature: '°C', Fan: 'RPM', Control: '%', Power: 'W' }[s.type];
   const max = s.max != null && s.type !== 'Control' ? `<small>max ${s.max.toFixed(s.type === 'Fan' ? 0 : 1)}</small>` : '';
-  return `<div class="srow"><span title="${esc(s.name)}">${esc(s.name)}</span>
+  return `<div class="srow"><span title="${esc(label)}">${esc(label)}</span>
     <div class="bar ${s.type === 'Temperature' ? 'temp-bar' : ''}" id="${id}-bar"><div></div></div>
     <b id="${id}">— ${unit}${max}</b></div>`;
 }
@@ -649,14 +670,42 @@ function sensorCard(h, hi) {
   const sensors = visibleSensors(h);
   const groups = SENSOR_GROUPS.map(([type, title]) => {
     const rows = sensors.map((s) => [s, h.sensors.indexOf(s)]).filter(([s]) => s.type === type);
-    return rows.length ? `<div class="sgroup"><h4 class="label">${title}</h4>${rows.map(([s, si]) => sensorRow(`sn-${hi}-${si}`, s)).join('')}</div>` : '';
+    // A CPU has a dozen near-identical core temperatures: lay them out in two columns without bars
+    const compact = h.type === 'Cpu' && type === 'Temperature' ? ' two-col' : '';
+    return rows.length ? `<div class="sgroup"><h4 class="label">${title}</h4><div class="srows${compact}">${rows.map(([s, si]) => sensorRow(`sn-${hi}-${si}`, s)).join('')}</div></div>` : '';
   }).join('');
-  const vendor = HW_LABELS[h.type] || h.type;
-  return `<div class="card" style="--c:var(${HW_COLORS[h.type] || '--temp'})">
+  return `<div class="card">
     <div class="sensor-head">
-      ${modelBlock(h.parent ? `${vendor} · ${h.parent}` : vendor, h.name, [])}
+      <div class="model"><div class="name">${esc(h.name.trim())}</div></div>
       <div class="big" id="sn-${hi}-head"></div>
     </div>${groups}</div>`;
+}
+
+// Every drive in one card: name and temperature per row (the full SMART data is in the Storage section)
+function drivesCard(items) {
+  const rows = items.map(({ h, hi }) => {
+    const si = h.sensors.findIndex((s) => s.type === 'Temperature' && HEADLINE_TEMPS.includes(s.name));
+    const index = si >= 0 ? si : h.sensors.findIndex((s) => s.type === 'Temperature');
+    return index >= 0 ? sensorRow(`sn-${hi}-${index}`, h.sensors[index], h.name.trim()) : '';
+  }).join('');
+  return `<div class="card"><div class="srows">${rows}</div></div>`;
+}
+
+const SENSOR_BLOCKS = [
+  ['Processor', '--cpu', (h) => h.type === 'Cpu'],
+  ['Graphics', '--gpu', (h) => h.type.startsWith('Gpu')],
+  ['Motherboard & fans', '--sys', (h) => h.type !== 'Cpu' && h.type !== 'Storage' && !h.type.startsWith('Gpu')],
+  ['Drives', '--disk', (h) => h.type === 'Storage'],
+];
+
+function sensorBlocks(hw) {
+  const items = hw.map((h, hi) => ({ h, hi }));
+  return SENSOR_BLOCKS.map(([title, color, match]) => {
+    const group = items.filter(({ h }) => match(h));
+    if (!group.length) return '';
+    const cards = title === 'Drives' ? drivesCard(group) : group.map(({ h, hi }) => sensorCard(h, hi)).join('');
+    return `<div class="sblock" style="--c:var(${color})"><h3 class="sblock-title"><i></i>${title}</h3>${cards}</div>`;
+  }).join('');
 }
 
 function updateSensorRow(id, s) {
@@ -705,6 +754,40 @@ function setTileTemp(id, t) {
   el.classList.toggle('hot', t >= 85);
 }
 
+// SSD wear and usage from SMART / NVMe health data
+const fmtGB = (gb) => (gb >= 1000 ? `${(gb / 1000).toFixed(gb >= 10000 ? 0 : 1)} TB` : `${Math.round(gb)} GB`);
+function fmtPowerOnLong(hours) {
+  const days = hours / 24;
+  return days >= 365 ? `${(days / 365).toFixed(1)} years powered on` : `${Math.round(days)} days powered on`;
+}
+
+function updateDriveHealth(index, hw) {
+  const box = $(`disk-health-${index}`);
+  if (!box) return;
+  const value = (type, name) => hw?.sensors.find((s) => s.type === type && s.name === name)?.value;
+  const used = value('Level', 'Percentage Used');
+  const life = value('Level', 'Life') ?? (used != null ? 100 - used : null);
+  const written = value('Data', 'Data Written');
+  const hours = value('Factor', 'Power On Hours');
+  const spare = value('Level', 'Available Spare');
+  const spareMin = value('Level', 'Available Spare Threshold');
+  box.hidden = life == null && written == null && hours == null;
+  if (box.hidden) return;
+
+  setText(`dh-life-txt-${index}`, life == null ? '—' : `${Math.round(life)}%`);
+  const bar = $(`dh-life-${index}`);
+  bar.firstElementChild.style.width = `${clamp(life ?? 0)}%`;
+  // Inverse of usage bars: a low value is the bad case
+  bar.classList.toggle('warn', life != null && life < 30 && life >= 10);
+  bar.classList.toggle('bad', life != null && life < 10);
+  setText(`dh-written-${index}`, written == null ? '—' : fmtGB(written));
+  setText(`dh-hours-${index}`, hours == null ? '—' : `${Math.round(hours).toLocaleString()} h`);
+  $(`dh-hours-${index}`).title = hours == null ? '' : fmtPowerOnLong(hours);
+  $(`dh-spare-box-${index}`).hidden = spare == null;
+  setText(`dh-spare-${index}`, spare == null ? '—' : `${Math.round(spare)}%`);
+  $(`dh-spare-${index}`).title = spareMin == null ? '' : `The drive reports a problem below ${spareMin}%`;
+}
+
 let sensorSig = null;
 function onSensors(d) {
   renderSensorNotice(d);
@@ -714,7 +797,7 @@ function onSensors(d) {
   const sig = hw.map((h) => `${h.id}:${visibleSensors(h).map((s) => s.type + s.name).join(',')}`).join('|');
   if (sig !== sensorSig) {
     sensorSig = sig;
-    setHtml('sensor-list', hw.map(sensorCard).join('')
+    setHtml('sensor-list', sensorBlocks(hw)
       || `<div class="card muted">${d.missing ? 'Sensor helper not available.' : 'No sensors reported yet.'}</div>`);
   }
   hw.forEach((h, hi) => {
@@ -761,19 +844,21 @@ function onSensors(d) {
 
   // Drives
   for (const disk of specs?.disks || []) {
-    const dh = hw.find((h) => h.type === 'Storage' && h.name === disk.model);
+    // LibreHardwareMonitor pads some model names (e.g. "Samsung SSD 850 PRO 128GB ")
+    const dh = hw.find((h) => h.type === 'Storage' && h.name.trim().toLowerCase() === String(disk.model).trim().toLowerCase());
     const t = dh ? headlineTemp(dh) : null;
     const el = $(`disk-temp-${disk.index}`);
     if (!el) continue;
     el.hidden = t == null;
     if (t != null) el.textContent = fmtTemp(t);
+    updateDriveHealth(disk.index, dh);
   }
 
   // History chart of the headline CPU / GPU temperatures that exist on this machine
   const series = [];
   if (cpuTemp != null) series.push(['CPU', '--cpu', cpuTemp]);
   if (primaryGpuTemp != null) series.push(['GPU', '--gpu', primaryGpuTemp]);
-  $('temp-chart-card').hidden = !series.length;
+  $('temp-chart-block').hidden = !series.length;
   if (series.length) {
     const key = `temp-${series.map((s) => s[0]).join('-')}`;
     if (!charts.has(key)) {
@@ -1122,7 +1207,27 @@ function syncOverlayDialog() {
   renderOverlayMetricChoices();
 }
 
+// ---------- Top processes (desktop app only) ----------
+function topProcessRows(items, valueOf, label, max) {
+  if (!items.length) return '<p class="muted">No data yet.</p>';
+  return items.map((p, i) => {
+    const v = valueOf(p);
+    return `<div class="proc-row">
+      <span class="name" title="${esc(p.name)}">${esc(p.name)}${p.count > 1 ? `<small>×${p.count}</small>` : ''}</span>
+      <div class="bar" style="--c:var(${i === 0 ? '--proc' : '--sys'})"><div style="width:${clamp((v / max) * 100)}%"></div></div>
+      <b>${label(v)}</b></div>`;
+  }).join('');
+}
+
+function renderTopProcesses(data) {
+  const cpuMax = Math.max(10, ...data.cpu.map((p) => p.value)); // scale to the busiest row, but never exaggerate idle noise
+  setHtml('proc-cpu', topProcessRows(data.cpu, (p) => p.value, (v) => `${v.toFixed(1)}%`, cpuMax));
+  const memMax = Math.max(1, ...data.mem.map((p) => p.bytes));
+  setHtml('proc-mem', topProcessRows(data.mem, (p) => p.bytes, fmtBytes, memMax));
+}
+
 function initOverlaySettings() {
+  document.querySelectorAll('.desktop-only').forEach((el) => { el.hidden = !host; });
   const button = $('btn-overlay-config');
   $('btn-overlay').hidden = !host;
   button.hidden = !host;
@@ -1183,6 +1288,7 @@ function onEvent(event, data) {
     return;
   }
   if (event === 'game-processes') { renderProcesses(data); return; }
+  if (event === 'procs') { renderTopProcesses(data); return; }
   if (event === 'presentmon-state') { handlePresentMonState(data); return; }
   if (event === 'game-state') { handleGameState(data); return; }
   if (event === 'game-metrics') { renderGameMetrics(data); return; }

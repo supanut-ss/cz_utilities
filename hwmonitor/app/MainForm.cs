@@ -59,6 +59,8 @@ internal sealed class MainForm : Form
         _collectors = new Collectors(Post);
         Load += async (_, _) => await InitWebViewAsync();
         Shown += (_, _) => { if (startInTray) Hide(); };
+        // Per-process sampling is only useful while the dashboard can be seen
+        VisibleChanged += (_, _) => _collectors.WatchProcesses = Visible;
         Resize += (_, _) =>
         {
             if (WindowState == FormWindowState.Minimized) { if (Visible) Hide(); }

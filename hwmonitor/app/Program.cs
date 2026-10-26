@@ -7,21 +7,26 @@ internal static class Program
     private const string ShowEventName = @"Local\HWMonitor.Show";
 
     [STAThread]
-    private static void Main(string[] args)
+    private static int Main(string[] args)
     {
+        ApplicationConfiguration.Initialize();
+
+        // --install / --uninstall run before the single-instance check: they have to stop a running copy
+        if (Installer.TryRun(args) is { } installerExitCode) return installerExitCode;
+
         using var mutex = new Mutex(true, MutexName, out var isFirstInstance);
         if (!isFirstInstance)
         {
             if (EventWaitHandle.TryOpenExisting(ShowEventName, out var show)) using (show) show.Set();
-            return;
+            return 0;
         }
 
-        ApplicationConfiguration.Initialize();
         // PawnIO must be present before LibreHardwareMonitor opens its devices
-        if (!PawnIo.EnsureInstalled()) return;
+        if (!PawnIo.EnsureInstalled()) return 0;
 
         var startInTray = args.Contains(StartupTask.TrayArgument, StringComparer.OrdinalIgnoreCase);
         using var showRequested = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
         Application.Run(new MainForm(startInTray, showRequested));
+        return 0;
     }
 }
