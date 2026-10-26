@@ -35,7 +35,14 @@ internal sealed class MainForm : Form
     private string _overlayConfigJson = "{\"metrics\":[\"cpu\",\"cpuTemp\",\"gpu\",\"gpuTemp\",\"memory\",\"vram\",\"fps\",\"frameTime\",\"low1\"],\"opacity\":94}";
     private bool _pageReady;
 
-    public MainForm()
+    // Tray: closing or minimizing hides the window; collectors, alerts, overlay and hotkey keep running
+    private readonly NotifyIcon _tray;
+    private readonly ToolStripMenuItem _startupItem = new("Start with Windows");
+    private FormWindowState _restoreState = FormWindowState.Maximized;
+    private bool _exiting;
+    private bool _trayHintShown;
+
+    public MainForm(bool startInTray, WaitHandle showRequested)
     {
         Text = "HW Monitor";
         Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
@@ -43,17 +50,121 @@ internal sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1500, 960);
         MinimumSize = new Size(820, 600);
-        WindowState = FormWindowState.Maximized;
+        // Started by the logon task: the form must still be shown once so WebView2 and the collectors start,
+        // so it comes up minimized and hides itself right away
+        WindowState = startInTray ? FormWindowState.Minimized : FormWindowState.Maximized;
         Controls.Add(_web);
 
+        _tray = CreateTrayIcon();
         _collectors = new Collectors(Post);
         Load += async (_, _) => await InitWebViewAsync();
+        Shown += (_, _) => { if (startInTray) Hide(); };
+        Resize += (_, _) =>
+        {
+            if (WindowState == FormWindowState.Minimized) { if (Visible) Hide(); }
+            else _restoreState = WindowState;
+        };
+        FormClosing += (_, e) =>
+        {
+            if (_exiting || e.CloseReason != CloseReason.UserClosing) return;
+            e.Cancel = true;
+            HideToTray();
+        };
+        // Another launch of the exe asks this instance to show itself (see Program)
+        ThreadPool.RegisterWaitForSingleObject(showRequested, (_, _) =>
+        {
+            if (IsHandleCreated && !IsDisposed) BeginInvoke(ShowFromTray);
+        }, null, Timeout.Infinite, executeOnlyOnce: false);
         FormClosed += (_, _) =>
         {
+            _tray.Visible = false;
+            _tray.Dispose();
             StopGameCapture(notify: false);
             _overlay?.Dispose();
             _collectors.Dispose();
         };
+    }
+
+    private NotifyIcon CreateTrayIcon()
+    {
+        var menu = new ContextMenuStrip();
+        var open = new ToolStripMenuItem("Open HW Monitor", null, (_, _) => ShowFromTray())
+        {
+            Font = new Font(menu.Font, FontStyle.Bold),
+        };
+        menu.Items.Add(open);
+        menu.Items.Add("Toggle overlay (Ctrl+Shift+O)", null, (_, _) => ToggleOverlay());
+        menu.Items.Add(new ToolStripSeparator());
+        _startupItem.Click += async (_, _) => await ToggleStartupAsync();
+        menu.Items.Add(_startupItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Exit", null, (_, _) => ExitApp());
+
+        var tray = new NotifyIcon
+        {
+            Icon = Icon,
+            Text = "HW Monitor",
+            ContextMenuStrip = menu,
+            Visible = true,
+        };
+        tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowFromTray(); };
+
+        // schtasks is slow-ish; read the startup state off the UI thread
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                StartupTask.RepairPathIfMoved(); // keep the task valid if the exe was moved
+                return StartupTask.IsEnabled;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                return false;
+            }
+        }).ContinueWith(t => _startupItem.Checked = t.Result, TaskScheduler.FromCurrentSynchronizationContext());
+        return tray;
+    }
+
+    private void HideToTray()
+    {
+        Hide();
+        if (_trayHintShown) return;
+        _trayHintShown = true;
+        _tray.ShowBalloonTip(3000, "HW Monitor is still running",
+            "Monitoring continues in the tray. Right-click the icon to exit.", ToolTipIcon.Info);
+    }
+
+    private void ShowFromTray()
+    {
+        Show();
+        if (WindowState == FormWindowState.Minimized) WindowState = _restoreState;
+        Activate();
+    }
+
+    private void ExitApp()
+    {
+        _exiting = true;
+        Close();
+    }
+
+    private async Task ToggleStartupAsync()
+    {
+        var enable = !_startupItem.Checked;
+        _startupItem.Enabled = false;
+        try
+        {
+            await Task.Run(() => { if (enable) StartupTask.Enable(); else StartupTask.Disable(); });
+            _startupItem.Checked = enable;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
+        {
+            MessageBox.Show(this, $"Could not change the startup setting.\n{ex.Message}", "HW Monitor",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            _startupItem.Enabled = true;
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)

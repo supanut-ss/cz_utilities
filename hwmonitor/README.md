@@ -8,6 +8,8 @@ Live hardware monitor for Windows with full component specs, temperatures and fa
 
 - Requires the .NET 10 Desktop Runtime and the Edge WebView2 Runtime (included with Windows 11).
 - Always runs as administrator (UAC prompt on launch) and starts maximized.
+- **Tray:** closing or minimizing the window hides it to the system tray; monitoring, alerts, the overlay and its hotkey keep running. Left-click the tray icon to reopen, right-click for the menu (Open, Toggle overlay, Start with Windows, Exit). Launching the exe again shows the running instance instead of starting a second one.
+- **Start with Windows:** the tray menu toggles a Task Scheduler logon task (`HW Monitor`, highest privileges, 10 s delay) that starts the exe with `--tray`. Because it is a task rather than a Run-key entry, there is no UAC prompt at sign-in. If the exe is moved, the task is re-pointed the next time the app is started from the new location.
 - Requires the PawnIO driver: if it is missing, a setup dialog installs it with winget before the dashboard opens. If the install fails the dialog offers Retry, the download page, or Exit; the app does not start without it.
 - **Overlay setup** offers Gaming, Compact and All metrics profiles, custom sensor selection and opacity. The borderless overlay has a rounded, draggable header and a hide button; custom layouts are saved per selected game, and **Ctrl+Shift+O** toggles the overlay.
 - **Health & sessions** checks CPU/GPU temperature and memory/VRAM pressure, records an alert after three high readings, saves readings every 10 seconds during a session, and exports the session as CSV.
