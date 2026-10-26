@@ -154,19 +154,23 @@
     <section id="sensors" class="section" style="--c:var(--temp)">
       <h2><i></i>Temperatures &amp; fans</h2>
       <div class="notice" id="sensor-notice" hidden></div>
-      <!-- #sensor-list uses display:contents so its category blocks share one grid with the history chart -->
+      <!-- Three columns with fixed contents so their heights come out close: (history + processor), (graphics + drives), (motherboard) -->
       <div class="sensor-grid">
-        <div class="sblock" style="--c:var(--temp)" id="temp-chart-block" hidden>
-          <h3 class="sblock-title"><i></i>History</h3>
-          <div class="card" id="temp-chart-card">
-            <div class="card-head">
-              <div><p class="muted" id="temp-legend"></p></div>
-              <div class="big" id="temp-big">—</div>
+        <div class="scol">
+          <div class="sblock" style="--c:var(--temp)" id="temp-chart-block" hidden>
+            <h3 class="sblock-title"><i></i>History</h3>
+            <div class="card" id="temp-chart-card">
+              <div class="card-head">
+                <div><p class="muted" id="temp-legend"></p></div>
+                <div class="big" id="temp-big">—</div>
+              </div>
+              <canvas class="chart" id="c-temp"></canvas>
             </div>
-            <canvas class="chart" id="c-temp"></canvas>
           </div>
+          <div class="scol-body" id="sensor-col-1"><div class="card"><div class="skeleton"></div></div></div>
         </div>
-        <div id="sensor-list"><div class="card"><div class="skeleton"></div></div></div>
+        <div class="scol" id="sensor-col-2"></div>
+        <div class="scol" id="sensor-col-3"></div>
       </div>
     </section>
 
@@ -256,6 +260,14 @@
       <label class="field-label range-label">Opacity <span><input id="overlay-opacity" type="range" min="55" max="100" step="1"><b id="overlay-opacity-value">94%</b></span></label>
       <p class="muted dialog-note">The overlay is a single bar at the top of the screen; drag it to move it. Use the × button or press Ctrl+Shift+O to hide it.</p>
     </form>
+  </dialog>
+
+  <dialog id="smart-dialog" class="settings-dialog smart-dialog" aria-labelledby="smart-dialog-title">
+    <div class="dialog-head">
+      <div><h2 id="smart-dialog-title">SMART</h2><p class="muted" id="smart-dialog-sub"></p></div>
+      <form method="dialog"><button class="btn icon" value="close" aria-label="Close SMART table">×</button></form>
+    </div>
+    <div class="smart-table" id="smart-dialog-table"></div>
   </dialog>
   <script src="app.js"></script>
 </body>

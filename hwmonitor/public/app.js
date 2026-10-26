@@ -395,14 +395,17 @@ function renderDisks(disks) {
     return `<div class="card">
       ${modelBlock(diskVendor(d.model), d.model, [
         chip(d.busType, 'accent'), chip(d.mediaType && d.mediaType !== 'Unspecified' ? d.mediaType : null, 'accent'),
-        chip(fmtDrive(d.size)), chip(d.health, healthy ? 'ok' : 'bad'),
+        chip(fmtDrive(d.size)),
+        // The SMART verdict chip replaces Windows' "Healthy"; only a problem is worth a second chip
+        healthy ? '' : chip(d.health, 'bad'),
         `<span class="chip accent" id="disk-temp-${d.index}" hidden></span>`,
+        `<span class="chip" id="disk-iface-${d.index}" hidden></span>`,
       ])}
-      ${specRows([['Disk', `#${d.index}`], ['Capacity', `${fmtDrive(d.size)} (${fmtBytes(d.size)})`], ['Firmware', d.firmware], ['Serial', d.serial]])}
+      <div class="verdict" id="verdict-${d.index}" hidden></div>
       ${vols}
       <div class="disk-health" id="disk-health-${d.index}" hidden>
         <h4 class="label">Drive health</h4>
-        <div class="vol">
+        <div class="vol" id="dh-life-row-${d.index}">
           <div class="row"><b>Life remaining</b><span id="dh-life-txt-${d.index}">—</span></div>
           <div class="bar" id="dh-life-${d.index}" style="--c:var(--ok)"><div></div></div>
         </div>
@@ -412,19 +415,275 @@ function renderDisks(disks) {
           <div class="stat" id="dh-spare-box-${d.index}"><span>Spare blocks</span><b id="dh-spare-${d.index}">—</b></div>
         </div>
       </div>
+      <h4 class="label">Activity</h4>
       <div class="io">
         <div class="stat"><span>Active</span><b id="disk-act-${d.index}">—</b></div>
         <div class="stat"><span><i style="--dot:var(--disk)"></i>Read</span><b id="disk-r-${d.index}">—</b></div>
         <div class="stat"><span><i style="--dot:var(--cpu)"></i>Write</span><b id="disk-w-${d.index}">—</b></div>
       </div>
       <canvas class="chart small" id="c-disk-${d.index}"></canvas>
+      <div class="card-foot">
+        <button class="btn smart-open" type="button" id="smart-${d.index}" data-disk="${d.index}" hidden>SMART table</button>
+        <details class="more">
+          <summary>Drive details</summary>
+          ${specRows([['Disk', `#${d.index}`], ['Capacity', `${fmtDrive(d.size)} (${fmtBytes(d.size)})`], ['Firmware', d.firmware], ['Serial', d.serial]])}
+        </details>
+      </div>
     </div>`;
   }).join(''));
   disks.forEach((d) => makeChart(`c-disk-${d.index}`, `disk-${d.index}`, {
     max: 'auto', minMax: 1024 * 1024, label: (m) => fmtRate(m),
     series: [{ color: '--disk' }, { color: '--cpu', width: 1.4 }],
   }));
+  applySmart();
 }
+
+// ---------- SMART tables ----------
+let smartData = null;
+const smartFallback = {}; // disk index -> { hours, writtenGB } taken from the SMART table
+
+// What each attribute means in plain words, and whether it is one of the few that decide a drive's health.
+// ("zero" = the value should be 0 on a healthy drive.)
+const SMART_INFO = {
+  ReallocatedSectorsCount: { key: true, zero: true, text: 'Bad sectors moved to the spare area' },
+  PendingSectorCount: { key: true, zero: true, text: 'Unstable sectors waiting to be re-tested' },
+  UncorrectableSectorCount: { key: true, zero: true, text: 'Errors the drive could not correct' },
+  UncorrectableErrors: { key: true, zero: true, text: 'Errors the drive could not correct' },
+  SpinRetryCount: { key: true, zero: true, text: 'Times the platters needed another try to spin up' },
+  CommandTimeout: { zero: true, text: 'Commands that timed out (power or cable problems)' },
+  EndToEndError: { zero: true, text: 'Data corrupted on its way through the drive' },
+  UltraDmaCrcErrorCount: { key: true, zero: true, text: 'Data errors on the cable / connection' },
+  CRCErrorCount: { key: true, zero: true, text: 'Data errors on the cable / connection' },
+  ProgramFailCount: { key: true, zero: true, text: 'Flash write failures' },
+  EraseFailCount: { key: true, zero: true, text: 'Flash erase failures' },
+  RuntimeBadBlock: { key: true, zero: true, text: 'Flash blocks that failed during use' },
+  UsedReservedBlockCount: { zero: true, text: 'Spare flash blocks already used' },
+  WearLevelingCount: { key: true, text: 'SSD wear: Current counts down from 100 as it wears' },
+  PowerOnHours: { key: true, text: 'Total time the drive has been powered on' },
+  PowerCycleCount: { text: 'Times the drive was switched on' },
+  StartStopCount: { text: 'Spin-up / spin-down cycles' },
+  LoadUnloadCycleCount: { text: 'Head park / unpark cycles (rated for several hundred thousand)' },
+  PowerOffRetractCount: { text: 'Emergency head retracts, e.g. after power loss' },
+  Temperature: { key: true, text: 'Drive temperature' },
+  AirflowTemperature: { key: true, text: 'Temperature of the air passing the drive' },
+  HostDataWritten: { key: true, text: 'Total data the PC has written to the drive' },
+  HostDataRead: { text: 'Total data the PC has read from the drive' },
+  ReadErrorRate: { text: 'Read error rate (vendor scale: judge by Current vs Threshold)' },
+  SeekErrorRate: { text: 'Head positioning errors (vendor scale)' },
+  SpinUpTime: { text: 'Time the platters take to reach full speed' },
+  GSenseErrorRate: { text: 'Shocks and bumps detected' },
+  HighFlyWrites: { text: 'Writes made while the head was too high' },
+  HeadFlyingHours: { text: 'Time the heads have spent flying over the platters' },
+  // NVMe
+  CriticalWarning: { key: true, zero: true, text: 'Warning flags raised by the drive (0 = none)' },
+  CompositeTemperature: { key: true, text: 'Overall drive temperature' },
+  AvailableSpare: { key: true, text: 'Spare flash left as a percentage' },
+  AvailableSpareThreshold: { text: 'Below this spare level the drive reports a warning' },
+  PercentageUsed: { key: true, text: "How much of the drive's rated endurance is used" },
+  MediaAndDataIntegrityErrors: { key: true, zero: true, text: 'Unrecoverable data errors' },
+  NumberOfErrorInformationLogEntries: { text: 'Entries in the drive\'s error log' },
+  UnsafeShutdownCount: { text: 'Power losses without a clean shutdown' },
+  PowerCycleCountNvme: { text: 'Times the drive was switched on' },
+};
+
+// Human-readable value of an attribute, or null when the raw number is only meaningful to the manufacturer
+function smartValue(a, nvme) {
+  const t = a.type || '';
+  const n = (v) => v.toLocaleString();
+  const low32 = a.raw % 2 ** 32;
+  if (nvme) {
+    if (t === 'CompositeTemperature' || t.startsWith('TemperatureSensor')) return `${Math.round(a.raw - 273.15)} °C`;
+    if (t === 'HostDataRead' || t === 'HostDataWritten') return fmtDrive(a.raw * 512000); // data units of 512,000 bytes
+    if (t === 'PowerOnHours') return `${n(a.raw)} h`;
+    if (t === 'ControllerBusyTime') return `${n(a.raw)} min`;
+    if (['PercentageUsed', 'AvailableSpare', 'AvailableSpareThreshold'].includes(t)) return `${a.raw}%`;
+    return n(a.raw);
+  }
+  switch (t) {
+    case 'PowerOnHours': case 'HeadFlyingHours': return `${n(low32)} h`;
+    case 'Temperature': case 'AirflowTemperature': return `${a.raw % 256} °C`;
+    case 'HostDataWritten': case 'HostDataRead': return fmtDrive(a.raw * 512); // total LBAs, 512 bytes each
+    case 'ReadErrorRate': case 'SeekErrorRate': case 'SoftReadErrorRate': case 'SpinUpTime': case 'ECCErrorRate': return null;
+    case 'WearLevelingCount': return `${n(low32)} cycles`;
+    default: return n(low32);
+  }
+}
+
+function smartRowLevel(a, nvme) {
+  const info = SMART_INFO[a.type] || {};
+  const t = a.type || '';
+  if (nvme) {
+    if (t === 'CriticalWarning') return a.raw > 0 ? 'bad' : 'ok';
+    if (t === 'MediaAndDataIntegrityErrors') return a.raw > 0 ? 'warn' : 'ok';
+    if (t === 'PercentageUsed') return a.raw >= 100 ? 'bad' : a.raw >= 90 ? 'warn' : 'ok';
+    return 'ok';
+  }
+  if (a.status === 'bad') return 'bad';
+  if (info.zero && a.raw % 2 ** 32 > 0 && /Reallocated|Pending|Uncorrectable|Crc|CRC|Program|Erase|BadBlock/i.test(t)) return 'warn';
+  return a.status === 'warn' ? 'warn' : 'ok';
+}
+
+function smartSummary(drive) {
+  const find = (type) => drive.attributes.find((a) => a.type === type);
+  const val = (type) => { const a = find(type); return a ? smartValue(a, drive.nvme) : null; };
+  const items = [
+    ['Temperature', val(drive.nvme ? 'CompositeTemperature' : 'Temperature') ?? val('AirflowTemperature')],
+    ['Power-on time', val('PowerOnHours')],
+    ['Data written', val('HostDataWritten')],
+    ['Power cycles', val('PowerCycleCount') ?? val('StartStopCount')],
+  ].filter(([, v]) => v);
+  return items.map(([k, v]) => `<div class="stat"><span>${k}</span><b>${esc(v)}</b></div>`).join('');
+}
+
+function smartTable(drive) {
+  const nvme = drive.nvme;
+  const LEVEL = { ok: ['OK', 'Normal'], warn: ['Watch', 'Not zero, or crossed its threshold in the past'], bad: ['Low', 'Below its failure threshold'] };
+  const row = (a) => {
+    const info = SMART_INFO[a.type] || {};
+    const level = smartRowLevel(a, nvme);
+    const value = smartValue(a, nvme);
+    const id = nvme ? '' : `<span class="aid">${a.id.toString(16).toUpperCase().padStart(2, '0')}</span>`;
+    const scale = nvme ? '' : `<td class="num mono scale" title="Current / Worst / Threshold (higher is better; trouble starts when Current reaches Threshold)">${a.current} <i>/</i> ${a.worst} <i>/</i> ${a.threshold}</td>`;
+    const raw = nvme ? '' : `<td class="num mono muted" title="${a.raw.toLocaleString()}">${esc(a.rawHex.replace(/^0+(?=.)/, ''))}</td>`;
+    return `<tr class="lv-${level}">
+      <td><span class="pill ${level}" title="${LEVEL[level][1]}">${LEVEL[level][0]}</span></td>
+      <td><div class="aname">${id}${esc(a.name)}</div>${info.text ? `<div class="adesc">${esc(info.text)}</div>` : ''}</td>
+      <td class="num mono val">${value == null ? '<span class="muted">—</span>' : esc(value)}</td>${scale}${raw}</tr>`;
+  };
+  const head = `<thead><tr><th>Status</th><th>Attribute</th><th class="num">Value</th>${nvme ? '' : '<th class="num">Now / Worst / Limit</th><th class="num">Raw (hex)</th>'}</tr></thead>`;
+  const span = nvme ? 3 : 5;
+  const key = drive.attributes.filter((a) => SMART_INFO[a.type]?.key);
+  const rest = drive.attributes.filter((a) => !SMART_INFO[a.type]?.key);
+  const section = (title, items) => items.length ? `<tr class="section"><td colspan="${span}">${title}</td></tr>${items.map(row).join('')}` : '';
+  return `<table class="${nvme ? 'nv' : ''}">${head}<tbody>${section('Key health indicators', key)}${section(key.length ? 'Other attributes' : 'All attributes', rest)}</tbody></table>`;
+}
+
+function applySmart() {
+  if (!specs || !smartData) return;
+  const norm2 = (s) => String(s).trim().toLowerCase();
+  for (const disk of specs.disks || []) {
+    const drive = smartData.drives.find((d) => norm2(d.name) === norm2(disk.model));
+    if (!drive) continue;
+    const i = disk.index;
+
+    // Bus type and SSD/HDD are already chips; the negotiated link speed (SATA/600) is the new information
+    const iface = $(`disk-iface-${i}`);
+    const link = drive.transfer && drive.transfer !== 'Unknown' ? drive.transfer.replace(/^Sata/, 'SATA/') : '';
+    iface.hidden = !link;
+    iface.textContent = link;
+
+    if (!drive.nvme) {
+      const hours = drive.attributes.find((a) => a.type === 'PowerOnHours')?.raw;
+      const lbas = drive.attributes.find((a) => a.type === 'HostDataWritten')?.raw; // total LBAs written, 512 bytes each
+      smartFallback[i] = { hours, writtenGB: lbas == null ? undefined : (lbas * 512) / 2 ** 30 };
+    }
+
+    $(`smart-${i}`).hidden = !drive.attributes.length;
+    renderVerdict(disk);
+    if (openSmartDisk === i) fillSmartDialog(disk, drive); // keep an open dialog live
+  }
+}
+
+// ---------- Plain-language drive verdict ----------
+const driveTemps = {}; // disk index -> °C from the sensors event
+const driveLife = {};  // disk index -> life remaining %, when the drive reports it
+
+const VERDICT_COPY = {
+  good: ['✓', 'Healthy', 'No problems found'],
+  warn: ['!', 'Needs attention', null],
+  bad: ['✕', 'Failing', 'Back up your data now'],
+};
+
+// Collects the reasons a drive is not perfectly healthy. Only things that matter are listed.
+function driveProblems(disk, drive) {
+  const problems = [];
+  const add = (level, text) => problems.push({ level, text });
+  const raw = (re) => drive.attributes.find((a) => re.test(a.type || ''))?.raw ?? 0;
+
+  if (drive.status === 'Bad') add('bad', 'The drive reports itself as failing (SMART)');
+  else if (drive.status === 'Caution') add('warn', 'The drive reports a caution state (SMART)');
+  if (!/healthy/i.test(disk.health || 'Healthy')) add('bad', `Windows reports the drive as ${disk.health}`);
+
+  for (const a of drive.attributes) {
+    if (a.status === 'bad') add('bad', `"${a.name}" has fallen below its failure threshold`);
+  }
+
+  const reallocated = raw(/^ReallocatedSectorsCount$/);
+  const pending = raw(/^PendingSectorCount$/);
+  const uncorrectable = raw(/^(UncorrectableSectorCount|UncorrectableErrors)$/);
+  const crc = raw(/crc/i);
+  if (pending > 0) add('warn', `${pending} sector(s) are waiting to be reallocated, which can mean the surface is wearing out`);
+  if (uncorrectable > 0) add('warn', `${uncorrectable} uncorrectable error(s) were recorded`);
+  if (reallocated > 0) add('warn', `${reallocated} bad sector(s) have been remapped`);
+  if (crc > 0) add('warn', `${crc} data transfer error(s); try another SATA cable or port`);
+
+  if (drive.nvme) {
+    if (raw(/^CriticalWarning$/) > 0) add('bad', 'The NVMe drive raised a critical warning');
+    if (raw(/^MediaAndDataIntegrityErrors$/) > 0) add('warn', 'The drive recorded media or data integrity errors');
+    const spare = drive.attributes.find((a) => a.type === 'AvailableSpare')?.raw;
+    const spareMin = drive.attributes.find((a) => a.type === 'AvailableSpareThreshold')?.raw;
+    if (spare != null && spareMin != null && spare < spareMin) add('bad', 'Spare blocks have dropped below the drive\'s minimum');
+  }
+
+  const life = driveLife[disk.index];
+  if (life != null && life < 10) add('bad', `Only ${Math.round(life)}% of the drive's life is left`);
+  else if (life != null && life < 30) add('warn', `${Math.round(life)}% of the drive's life is left`);
+
+  const temp = driveTemps[disk.index];
+  const hot = drive.ssd ? 70 : 55; // spinning disks run cooler and tolerate heat worse
+  if (temp != null && temp >= hot) add('warn', `Running hot at ${Math.round(temp)} °C`);
+  return problems;
+}
+
+function renderVerdict(disk) {
+  const box = $(`verdict-${disk.index}`);
+  const drive = smartData?.drives.find((d) => d.name.trim().toLowerCase() === String(disk.model).trim().toLowerCase());
+  if (!box || !drive || drive.status === 'Unknown' && !drive.attributes.length) { if (box) box.hidden = true; return; }
+
+  const problems = driveProblems(disk, drive);
+  const level = problems.some((p) => p.level === 'bad') ? 'bad' : problems.length ? 'warn' : 'good';
+  const [icon, title, note] = VERDICT_COPY[level];
+  const life = driveLife[disk.index];
+  const detail = level === 'good'
+    ? [life != null ? `${Math.round(life)}% life left` : null, 'no bad sectors or errors', driveTemps[disk.index] != null ? `${Math.round(driveTemps[disk.index])} °C` : null]
+      .filter(Boolean).join(' · ')
+    : null;
+  box.hidden = false;
+  box.className = `verdict ${level}`;
+  box.innerHTML = `<span class="verdict-icon" aria-hidden="true">${icon}</span><div>
+    <b>${title}</b>${note && level === 'bad' ? ` <span>${note}</span>` : ''}
+    ${detail ? `<p>${esc(detail.charAt(0).toUpperCase() + detail.slice(1))}</p>` : ''}
+    ${problems.length ? `<ul>${problems.map((p) => `<li class="${p.level}">${esc(p.text)}</li>`).join('')}</ul>` : ''}</div>`;
+}
+
+let openSmartDisk = null;
+function fillSmartDialog(disk, drive) {
+  setText('smart-dialog-title', `SMART · ${disk.model}`);
+  setText('smart-dialog-sub', `${drive.attributes.length} attributes · refreshes every 10 s`);
+  const problems = driveProblems(disk, drive);
+  const level = problems.some((p) => p.level === 'bad') ? 'bad' : problems.length ? 'warn' : 'good';
+  const [icon, title] = VERDICT_COPY[level];
+  $('smart-dialog-table').innerHTML = `
+    <div class="smart-top">
+      <div class="verdict ${level}"><span class="verdict-icon">${icon}</span><div><b>${title}</b>${
+        problems.length ? `<ul>${problems.map((p) => `<li class="${p.level}">${esc(p.text)}</li>`).join('')}</ul>` : '<p>No problems found</p>'}</div></div>
+      <div class="stats">${smartSummary(drive)}</div>
+    </div>${smartTable(drive)}
+    ${drive.nvme ? '' : '<p class="muted smart-help">“Now / Worst / Limit”: higher is better. A drive is failing when <b>Now</b> falls to the <b>Limit</b>. “Raw” is the manufacturer\'s own counter; the Value column decodes it where the meaning is standard.</p>'}`;
+}
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('.smart-open');
+  if (!button || !smartData || !specs) return;
+  const disk = specs.disks.find((d) => String(d.index) === button.dataset.disk);
+  const drive = disk && smartData.drives.find((d) => d.name.trim().toLowerCase() === String(disk.model).trim().toLowerCase());
+  if (!drive) return;
+  openSmartDisk = disk.index;
+  fillSmartDialog(disk, drive);
+  const dialog = $('smart-dialog');
+  dialog.addEventListener('close', () => { openSmartDisk = null; }, { once: true });
+  dialog.showModal();
+});
 
 function renderNetwork(nics) {
   const up = nics.filter((n) => n.status === 'Up');
@@ -698,14 +957,19 @@ const SENSOR_BLOCKS = [
   ['Drives', '--disk', (h) => h.type === 'Storage'],
 ];
 
+// Which of the three page columns each category goes to; chosen so the column heights come out similar
+const SENSOR_COLUMN = { Processor: 1, Graphics: 2, Drives: 2, 'Motherboard & fans': 3 };
+
 function sensorBlocks(hw) {
   const items = hw.map((h, hi) => ({ h, hi }));
-  return SENSOR_BLOCKS.map(([title, color, match]) => {
+  const columns = { 1: '', 2: '', 3: '' };
+  for (const [title, color, match] of SENSOR_BLOCKS) {
     const group = items.filter(({ h }) => match(h));
-    if (!group.length) return '';
+    if (!group.length) continue;
     const cards = title === 'Drives' ? drivesCard(group) : group.map(({ h, hi }) => sensorCard(h, hi)).join('');
-    return `<div class="sblock" style="--c:var(${color})"><h3 class="sblock-title"><i></i>${title}</h3>${cards}</div>`;
-  }).join('');
+    columns[SENSOR_COLUMN[title]] += `<div class="sblock" style="--c:var(${color})"><h3 class="sblock-title"><i></i>${title}</h3>${cards}</div>`;
+  }
+  return columns;
 }
 
 function updateSensorRow(id, s) {
@@ -767,12 +1031,16 @@ function updateDriveHealth(index, hw) {
   const value = (type, name) => hw?.sensors.find((s) => s.type === type && s.name === name)?.value;
   const used = value('Level', 'Percentage Used');
   const life = value('Level', 'Life') ?? (used != null ? 100 - used : null);
-  const written = value('Data', 'Data Written');
-  const hours = value('Factor', 'Power On Hours');
+  // Drives LibreHardwareMonitor has no wear sensors for (spinning disks) fall back to the SMART table
+  const fallback = smartFallback[index] || {};
+  const written = value('Data', 'Data Written') ?? fallback.writtenGB;
+  const hours = value('Factor', 'Power On Hours') ?? fallback.hours;
   const spare = value('Level', 'Available Spare');
   const spareMin = value('Level', 'Available Spare Threshold');
+  if (life != null) driveLife[index] = life;
   box.hidden = life == null && written == null && hours == null;
   if (box.hidden) return;
+  $(`dh-life-row-${index}`).hidden = life == null; // spinning disks report no life percentage
 
   setText(`dh-life-txt-${index}`, life == null ? '—' : `${Math.round(life)}%`);
   const bar = $(`dh-life-${index}`);
@@ -797,8 +1065,10 @@ function onSensors(d) {
   const sig = hw.map((h) => `${h.id}:${visibleSensors(h).map((s) => s.type + s.name).join(',')}`).join('|');
   if (sig !== sensorSig) {
     sensorSig = sig;
-    setHtml('sensor-list', sensorBlocks(hw)
-      || `<div class="card muted">${d.missing ? 'Sensor helper not available.' : 'No sensors reported yet.'}</div>`);
+    const columns = sensorBlocks(hw);
+    setHtml('sensor-col-1', columns[1] || (hw.length ? '' : `<div class="card muted">${d.missing ? 'Sensor helper not available.' : 'No sensors reported yet.'}</div>`));
+    setHtml('sensor-col-2', columns[2]);
+    setHtml('sensor-col-3', columns[3]);
   }
   hw.forEach((h, hi) => {
     const head = headlineTemp(h);
@@ -852,6 +1122,8 @@ function onSensors(d) {
     el.hidden = t == null;
     if (t != null) el.textContent = fmtTemp(t);
     updateDriveHealth(disk.index, dh);
+    if (t != null) driveTemps[disk.index] = t;
+    renderVerdict(disk);
   }
 
   // History chart of the headline CPU / GPU temperatures that exist on this machine
@@ -1289,6 +1561,7 @@ function onEvent(event, data) {
   }
   if (event === 'game-processes') { renderProcesses(data); return; }
   if (event === 'procs') { renderTopProcesses(data); return; }
+  if (event === 'smart') { smartData = data; applySmart(); return; }
   if (event === 'presentmon-state') { handlePresentMonState(data); return; }
   if (event === 'game-state') { handleGameState(data); return; }
   if (event === 'game-metrics') { renderGameMetrics(data); return; }

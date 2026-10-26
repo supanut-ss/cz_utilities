@@ -4,7 +4,11 @@ using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DiskInfoToolkit;
+using DiskInfoToolkit.Enums.Interop;
+using DiskInfoToolkit.Interop.Enums;
 using LibreHardwareMonitor.Hardware;
+using LibreHardwareMonitor.Hardware.Storage;
 
 namespace HWMonitor;
 
@@ -230,11 +234,13 @@ internal sealed class Collectors : IDisposable
         try
         {
             computer.Open();
-            while (!_cts.IsCancellationRequested)
+            for (var tick = 0; !_cts.IsCancellationRequested; tick++)
             {
                 var hardware = new List<object>();
                 foreach (var hw in computer.Hardware) Collect(hw, null, hardware);
                 Publish("sensors", JsonSerializer.Serialize(new { admin = IsAdmin, pawnIo = hasPawnIo, hardware }));
+                // SMART tables change slowly, so they go out every 10 s instead of every second
+                if (tick % 10 == 0) PublishSmart(computer);
                 _cts.Token.WaitHandle.WaitOne(1000);
             }
         }
@@ -246,6 +252,64 @@ internal sealed class Collectors : IDisposable
         {
             computer.Close();
         }
+    }
+
+    // ---------- SMART tables (via DiskInfoToolkit, which LibreHardwareMonitor uses for drives) ----------
+
+    private void PublishSmart(Computer computer)
+    {
+        var drives = new List<object>();
+        foreach (var hw in computer.Hardware)
+        {
+            if (hw is not StorageDevice { Storage: { Smart: { } smart } storage }) continue;
+            try
+            {
+                var attributes = smart.SmartAttributes
+                    // NVMe drives list 8 temperature sensors but fill only the ones they have
+                    .Where(a => !(storage.IsNVMe && a.Info?.Type.ToString().StartsWith("TemperatureSensor") == true && a.Attribute.RawValueULong == 0))
+                    .Select(SmartRow).ToList();
+                drives.Add(new
+                {
+                    name = hw.Name,
+                    status = smart.DiskStatus.ToString(), // Good / Caution / Bad / Unknown, same rules as CrystalDiskInfo
+                    ssd = storage.IsSSD,
+                    nvme = storage.IsNVMe,
+                    bus = storage.BusType.ToString().Replace("BusType", ""),
+                    transfer = storage.ATAInfo?.TransferMode.ToString().Replace("TransferMode", ""),
+                    attributes,
+                });
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or NullReferenceException or ArgumentException)
+            {
+                // A drive that cannot be read just has no SMART table
+            }
+        }
+        Publish("smart", JsonSerializer.Serialize(new { drives }));
+    }
+
+    private static object SmartRow(DiskInfoToolkit.SmartAttribute attribute)
+    {
+        var s = attribute.Attribute;
+        var raw = s.RawValueULong;
+        var type = attribute.Info?.Type;
+        // Temperature attributes count down from a vendor-chosen value, so "worst <= threshold" there is not a failure
+        var isTemperature = type is SmartAttributeType.Temperature or SmartAttributeType.AirflowTemperature;
+        var status = isTemperature || s.Threshold == 0 ? "ok"
+            : s.CurrentValue <= s.Threshold ? "bad"
+            : s.WorstValue <= s.Threshold ? "warn" // crossed the threshold in the past, fine now
+            : "ok";
+        return new
+        {
+            id = s.ID,
+            type = type?.ToString(),
+            name = string.IsNullOrWhiteSpace(attribute.Info?.Name) ? $"Attribute {s.ID:X2}" : attribute.Info!.Name,
+            current = (int)s.CurrentValue,
+            worst = (int)s.WorstValue,
+            threshold = (int)s.Threshold,
+            raw,
+            rawHex = raw.ToString("X12"),
+            status,
+        };
     }
 
     private static void Collect(IHardware hw, string? parent, List<object> output)
