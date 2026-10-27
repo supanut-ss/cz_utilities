@@ -38,6 +38,7 @@ let activeSession = null;
 let sessionTimer = null;
 let latestReadings = {};
 let latestGameMetrics = null;
+let currentGameCaptureId = 0;
 let gameProcesses = [];
 let gameOverlayProfiles = readStored('hwm-game-overlay-profiles', {});
 if (!gameOverlayProfiles || typeof gameOverlayProfiles !== 'object' || Array.isArray(gameOverlayProfiles)) gameOverlayProfiles = {};
@@ -1382,6 +1383,11 @@ function updateGameDiagnosis() {
 }
 
 function renderGameMetrics(data) {
+  const captureId = Number(data.captureId);
+  if (Number.isFinite(captureId)) {
+    if (captureId < currentGameCaptureId) return;
+    currentGameCaptureId = captureId;
+  }
   latestGameMetrics = data;
   setText('game-fps', Number.isFinite(data.fps) ? data.fps.toFixed(0) : '—');
   setText('game-frame-time', Number.isFinite(data.frameTimeMs) ? `${data.frameTimeMs.toFixed(2)} ms` : '—');
@@ -1391,11 +1397,26 @@ function renderGameMetrics(data) {
 }
 
 function handleGameState(data) {
+  const captureId = Number(data.captureId);
+  if (Number.isFinite(captureId)) {
+    if (captureId < currentGameCaptureId) return;
+    currentGameCaptureId = captureId;
+  }
   gameCapturing = data.state === 'running' || data.state === 'waiting';
   if (data.state === 'running') {
+    latestGameMetrics = null;
+    setText('game-fps', '—');
+    setText('game-frame-time', '—');
+    setText('game-low1', '—');
     const target = data.executableName || data.processName || 'game';
     setText('game-message', `${data.automatic ? 'Auto-capturing' : 'Capturing'} ${target} · ${new Date().toLocaleTimeString()}`);
-  } else if (data.state === 'waiting') setText('game-message', data.message || 'PresentMon is waiting for rendered frames.');
+  } else if (data.state === 'waiting') {
+    latestGameMetrics = null;
+    setText('game-fps', '—');
+    setText('game-frame-time', '—');
+    setText('game-low1', '—');
+    setText('game-message', data.message || 'PresentMon is waiting for rendered frames.');
+  }
   else {
     latestGameMetrics = null;
     setText('game-fps', '—');

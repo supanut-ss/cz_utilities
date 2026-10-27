@@ -48,6 +48,7 @@ internal sealed class MainForm : Form
     private Process? _presentMonProcess;
     private string? _presentMonSessionName;
     private string? _capturedExecutablePath;
+    private long _gameCaptureGeneration;
     private bool _gameCaptureAutomatic;
     private bool _autoGameCaptureEnabled;
     private string? _autoCandidatePath;
@@ -453,8 +454,17 @@ internal sealed class MainForm : Form
 
         if (!string.Equals(_autoCandidatePath, candidate.ExecutablePath, StringComparison.OrdinalIgnoreCase))
         {
+            StopGameCapture(notify: false);
             _autoCandidatePath = candidate.ExecutablePath;
             _autoCandidateSinceUtc = DateTime.UtcNow;
+            _lastAutoCaptureAttemptUtc = DateTime.MinValue;
+            Post("game-state", JsonSerializer.Serialize(new
+            {
+                state = "waiting",
+                message = $"Confirming {candidate.ProcessName} before capture.",
+                automatic = true,
+                captureId = GetGameCaptureGeneration(),
+            }));
             PostAutoGameStatus($"Detected {candidate.ProcessName}; confirming the game window…");
             return;
         }
@@ -534,6 +544,17 @@ internal sealed class MainForm : Form
             try { return !_presentMonProcess.HasExited; }
             catch (InvalidOperationException) { return false; }
         }
+    }
+
+    private bool IsCurrentGameCapture(Process process, long captureId)
+    {
+        lock (_gameCaptureGate)
+            return _gameCaptureGeneration == captureId && ReferenceEquals(_presentMonProcess, process);
+    }
+
+    private long GetGameCaptureGeneration()
+    {
+        lock (_gameCaptureGate) return _gameCaptureGeneration;
     }
 
     private void PostAutoGameStatus(string message)
@@ -768,23 +789,35 @@ internal sealed class MainForm : Form
             var process = Process.Start(startInfo);
             if (process is null)
             {
-                Post("game-state", JsonSerializer.Serialize(new { state = "error", message = "Windows could not start PresentMon." }));
+                Post("game-state", JsonSerializer.Serialize(new
+                {
+                    state = "error",
+                    message = "Windows could not start PresentMon.",
+                    captureId = GetGameCaptureGeneration(),
+                }));
                 return;
             }
 
+            long captureId;
             lock (_gameCaptureGate)
             {
                 _presentMonProcess = process;
                 _presentMonSessionName = GameCaptureSessionName;
                 _capturedExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath;
                 _gameCaptureAutomatic = automatic;
+                captureId = ++_gameCaptureGeneration;
             }
-            Post("game-state", JsonSerializer.Serialize(new { state = "running", processId, processName, executableName, automatic }));
-            _ = CapturePresentMonAsync(process, processName, automatic);
+            Post("game-state", JsonSerializer.Serialize(new { state = "running", processId, processName, executableName, automatic, captureId }));
+            _ = CapturePresentMonAsync(process, processName, automatic, captureId);
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
         {
-            Post("game-state", JsonSerializer.Serialize(new { state = "error", message = $"Could not start PresentMon: {ex.Message}" }));
+            Post("game-state", JsonSerializer.Serialize(new
+            {
+                state = "error",
+                message = $"Could not start PresentMon: {ex.Message}",
+                captureId = GetGameCaptureGeneration(),
+            }));
         }
     }
 
@@ -792,6 +825,7 @@ internal sealed class MainForm : Form
     {
         Process? process;
         string? sessionName;
+        long captureId;
         lock (_gameCaptureGate)
         {
             process = _presentMonProcess;
@@ -800,6 +834,7 @@ internal sealed class MainForm : Form
             _presentMonSessionName = null;
             _capturedExecutablePath = null;
             _gameCaptureAutomatic = false;
+            captureId = ++_gameCaptureGeneration;
         }
 
         StopPresentMonSession(sessionName);
@@ -815,7 +850,7 @@ internal sealed class MainForm : Form
                 // It may have exited while the capture is stopping.
             }
         }
-        if (notify) Post("game-state", JsonSerializer.Serialize(new { state = "stopped", message = "Capture stopped." }));
+        if (notify) Post("game-state", JsonSerializer.Serialize(new { state = "stopped", message = "Capture stopped.", captureId }));
     }
 
     private void StopPresentMonSession(string? sessionName)
@@ -840,22 +875,24 @@ internal sealed class MainForm : Form
         }
     }
 
-    private async Task CapturePresentMonAsync(Process process, string processName, bool automatic)
+    private async Task CapturePresentMonAsync(Process process, string processName, bool automatic, long captureId)
     {
         var errors = new ConcurrentQueue<string>();
         var firstFrame = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var errorReader = ReadPresentMonErrorsAsync(process, errors);
-        var outputReader = ReadPresentMonMetricsAsync(process, processName, firstFrame);
+        var outputReader = ReadPresentMonMetricsAsync(process, processName, firstFrame, captureId);
         try
         {
             var exitTask = process.WaitForExitAsync();
             var firstFrameOrExit = await Task.WhenAny(firstFrame.Task, exitTask, Task.Delay(TimeSpan.FromSeconds(8)));
-            if (firstFrameOrExit != firstFrame.Task && firstFrameOrExit != exitTask && !process.HasExited)
+            if (firstFrameOrExit != firstFrame.Task && firstFrameOrExit != exitTask && !process.HasExited &&
+                IsCurrentGameCapture(process, captureId))
                 Post("game-state", JsonSerializer.Serialize(new
                 {
                     state = "waiting",
                     message = $"PresentMon is watching {processName}, waiting for rendered frames.",
                     automatic,
+                    captureId,
                 }));
 
             await process.WaitForExitAsync();
@@ -871,25 +908,43 @@ internal sealed class MainForm : Form
                 : null;
 
             var isCurrent = false;
+            long endedCaptureId;
             lock (_gameCaptureGate)
             {
                 isCurrent = ReferenceEquals(_presentMonProcess, process);
-                if (isCurrent) _presentMonProcess = null;
+                if (isCurrent)
+                {
+                    _presentMonProcess = null;
+                    _presentMonSessionName = null;
+                    _capturedExecutablePath = null;
+                    _gameCaptureAutomatic = false;
+                    _gameCaptureGeneration++;
+                }
+                endedCaptureId = _gameCaptureGeneration;
             }
             if (isCurrent)
                 Post("game-state", JsonSerializer.Serialize(friendlyError is null
-                    ? new { state = "stopped", message = $"{processName} capture ended." }
-                    : new { state = "error", message = friendlyError }));
+                    ? new { state = "stopped", message = $"{processName} capture ended.", captureId = endedCaptureId }
+                    : new { state = "error", message = friendlyError, captureId = endedCaptureId }));
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or System.ComponentModel.Win32Exception or ObjectDisposedException)
         {
             var isCurrent = false;
+            long endedCaptureId;
             lock (_gameCaptureGate)
             {
                 isCurrent = ReferenceEquals(_presentMonProcess, process);
-                if (isCurrent) _presentMonProcess = null;
+                if (isCurrent)
+                {
+                    _presentMonProcess = null;
+                    _presentMonSessionName = null;
+                    _capturedExecutablePath = null;
+                    _gameCaptureAutomatic = false;
+                    _gameCaptureGeneration++;
+                }
+                endedCaptureId = _gameCaptureGeneration;
             }
-            if (isCurrent) Post("game-state", JsonSerializer.Serialize(new { state = "error", message = $"PresentMon capture stopped: {ex.Message}" }));
+            if (isCurrent) Post("game-state", JsonSerializer.Serialize(new { state = "error", message = $"PresentMon capture stopped: {ex.Message}", captureId = endedCaptureId }));
         }
         finally
         {
@@ -911,7 +966,7 @@ internal sealed class MainForm : Form
         }
     }
 
-    private async Task<bool> ReadPresentMonMetricsAsync(Process process, string processName, TaskCompletionSource<bool> firstFrame)
+    private async Task<bool> ReadPresentMonMetricsAsync(Process process, string processName, TaskCompletionSource<bool> firstFrame, long captureId)
     {
         string[]? headers = null;
         var frameIndex = -1;
@@ -937,6 +992,7 @@ internal sealed class MainForm : Form
             }
             if (fields.Length <= frameIndex || !double.TryParse(fields[frameIndex], NumberStyles.Float, CultureInfo.InvariantCulture, out var frameMs) ||
                 !double.IsFinite(frameMs) || frameMs <= 0 || frameMs > 1000) continue;
+            if (!IsCurrentGameCapture(process, captureId)) continue;
 
             firstFrame.TrySetResult(true);
             var now = DateTime.UtcNow;
@@ -955,6 +1011,7 @@ internal sealed class MainForm : Form
                 Post("game-metrics", JsonSerializer.Serialize(new
                 {
                     processName,
+                    captureId,
                     fps = Math.Round(fps, 1),
                     frameTimeMs = Math.Round(averageFrameMs, 2),
                     low1Fps = low1 is double value ? Math.Round(value, 1) : (double?)null,
