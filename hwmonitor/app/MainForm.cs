@@ -56,6 +56,7 @@ internal sealed class MainForm : Form
     private DateTime _autoCandidateSinceUtc;
     private DateTime _lastAutoCaptureAttemptUtc;
     private string? _presentMonPath;
+    private bool _stalePresentMonSessionsCleaned;
     private string _overlayConfigJson = "{\"metrics\":[\"cpu\",\"cpuTemp\",\"gpu\",\"gpuTemp\",\"memory\",\"vram\",\"fps\",\"frameTime\",\"low1\"],\"opacity\":94}";
     private bool _pageReady;
 
@@ -569,6 +570,7 @@ internal sealed class MainForm : Form
         _presentMonPath = IsPresentMonExecutable(preferredPath) ? preferredPath : FindPresentMonExecutable();
         if (_presentMonPath is not null)
         {
+            CleanupStalePresentMonSessions();
             Post("presentmon-state", JsonSerializer.Serialize(new { path = _presentMonPath }));
             return;
         }
@@ -582,6 +584,7 @@ internal sealed class MainForm : Form
         try
         {
             _presentMonPath = await DownloadLatestPresentMonAsync();
+            CleanupStalePresentMonSessions();
             Post("presentmon-state", JsonSerializer.Serialize(new { path = _presentMonPath }));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or
@@ -594,6 +597,74 @@ internal sealed class MainForm : Form
                 path = (string?)null,
                 message = "Automatic setup failed. Check your connection or locate PresentMon.exe manually.",
             }));
+        }
+    }
+
+    private void CleanupStalePresentMonSessions()
+    {
+        if (_stalePresentMonSessionsCleaned || !IsPresentMonExecutable(_presentMonPath)) return;
+        _stalePresentMonSessionsCleaned = true;
+
+        try
+        {
+            var startInfo = new ProcessStartInfo("logman.exe")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+            };
+            startInfo.ArgumentList.Add("query");
+            startInfo.ArgumentList.Add("-ets");
+
+            using var query = Process.Start(startInfo);
+            if (query is null) return;
+            var outputTask = query.StandardOutput.ReadToEndAsync();
+            if (!query.WaitForExit(3000))
+            {
+                query.Kill(entireProcessTree: true);
+                return;
+            }
+
+            var staleSessions = outputTask.GetAwaiter().GetResult()
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault())
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name!)
+                .Where(name => TryGetLegacySessionOwner(name, out var ownerId) && !IsProcessRunning(ownerId))
+                .ToArray();
+
+            foreach (var session in staleSessions) StopPresentMonSession(session);
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or NotSupportedException)
+        {
+            // Capture can continue even if stale session cleanup is unavailable.
+        }
+    }
+
+    private static bool TryGetLegacySessionOwner(string sessionName, out int ownerProcessId)
+    {
+        ownerProcessId = 0;
+        var parts = sessionName.Split('-');
+        return parts.Length == 3 &&
+            parts[0].Equals("HWMonitor", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out ownerProcessId) &&
+            int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out _);
+    }
+
+    private static bool IsProcessRunning(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+            return true;
         }
     }
 

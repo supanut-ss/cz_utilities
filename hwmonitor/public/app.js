@@ -1393,6 +1393,9 @@ function renderGameMetrics(data) {
   setText('game-frame-time', Number.isFinite(data.frameTimeMs) ? `${data.frameTimeMs.toFixed(2)} ms` : '—');
   setText('game-low1', Number.isFinite(data.low1Fps) ? data.low1Fps.toFixed(0) : '—');
   if (data.frameTimeMs > 0) pushChart('game', [data.frameTimeMs]);
+  if (gameCapturing && Number.isFinite(data.fps)) {
+    setText('game-message', `${data.processName || 'Game'} capture active · ${data.fps.toFixed(0)} FPS`);
+  }
   updateGameDiagnosis();
 }
 
