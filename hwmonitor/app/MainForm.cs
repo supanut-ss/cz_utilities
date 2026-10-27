@@ -349,7 +349,10 @@ internal sealed class MainForm : Form
         _overlay.BringToFront();
     }
 
-    private sealed record GameProcess(int Id, string Name, string Title);
+    private sealed record GameProcess(
+        [property: System.Text.Json.Serialization.JsonPropertyName("id")] int Id,
+        [property: System.Text.Json.Serialization.JsonPropertyName("name")] string Name,
+        [property: System.Text.Json.Serialization.JsonPropertyName("title")] string Title);
 
     private void PostGameProcesses()
     {
