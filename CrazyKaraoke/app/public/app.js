@@ -251,9 +251,13 @@ function ensureYoutubePlayer() {
     }, 10_000);
 
     try {
+      const initialVideoId = roomState?.currentSong?.videoId;
+      if (initialVideoId) cuedVideoId = initialVideoId;
+      playerNeedsRestart = ["playing", "paused"].includes(roomState?.playbackState);
       youtubePlayer = new window.YT.Player("youtube-player-target", {
         width: "100%",
         height: "100%",
+        videoId: initialVideoId,
         playerVars: {
           controls: 1,
           fs: 1,
@@ -269,6 +273,11 @@ function ensureYoutubePlayer() {
             youtubePlayerError = false;
             setPlayerMessage("ตัวเล่นพร้อม · ใช้ปุ่มควบคุมและเต็มจอของ YouTube");
             syncPlayerToRoom();
+            if (initialVideoId && roomState?.currentSong?.videoId === initialVideoId && roomState.playbackState === "playing" && roomState.viewerId === roomState.hostPlayerId) {
+              playerNeedsRestart = true;
+              setPlayerMessage("Player ใหม่จะเริ่มเพลงนี้ตั้งแต่ต้น");
+              reportPlaybackState("paused", initialVideoId, roomState.currentSong.id);
+            }
             if (roomState) renderPlayback(roomState, roomState.viewerId === roomState.hostPlayerId);
             resolve(youtubePlayer);
           },
@@ -1127,10 +1136,7 @@ async function startOrContinueSong() {
       return;
     }
     pendingPlayerEvent = null;
-    if (currentPlaybackState === "paused" && playerNeedsRestart) {
-      cuedVideoId = currentSong.videoId;
-      youtubePlayer.loadVideoById({ videoId: currentSong.videoId, startSeconds: 0 });
-    } else if (currentPlaybackState === "paused") youtubePlayer.playVideo();
+    if (currentPlaybackState === "paused" && !playerNeedsRestart) youtubePlayer.playVideo();
     else {
       cuedVideoId = currentSong.videoId;
       youtubePlayer.loadVideoById({ videoId: currentSong.videoId, startSeconds: 0 });
