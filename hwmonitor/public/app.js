@@ -1345,6 +1345,7 @@ function updateGameControls() {
   $('btn-game-stop').disabled = !gameCapturing;
   $('btn-presentmon').disabled = !host;
   $('btn-process-refresh').disabled = !host;
+  $('game-auto-detect').disabled = !host;
 }
 
 function renderProcesses(data) {
@@ -1352,7 +1353,7 @@ function renderProcesses(data) {
   const selected = select.value;
   gameProcesses = Array.isArray(data.processes) ? data.processes : [];
   select.innerHTML = '<option value="">Select a running app</option>' + gameProcesses.map((p) =>
-    `<option value="${Number(p.id)}">${esc(p.title || p.name)} · ${esc(p.name)}</option>`).join('');
+    `<option value="${Number(p.id)}">${esc(p.title || p.name)} · ${esc(p.name)} (PID ${Number(p.id)})</option>`).join('');
   if (gameProcesses.some((p) => String(p.id) === selected)) select.value = selected;
   updateGameControls();
 }
@@ -1390,8 +1391,11 @@ function renderGameMetrics(data) {
 }
 
 function handleGameState(data) {
-  gameCapturing = data.state === 'running';
-  if (data.state === 'running') setText('game-message', `Capturing ${data.processName || 'game'} · ${new Date().toLocaleTimeString()}`);
+  gameCapturing = data.state === 'running' || data.state === 'waiting';
+  if (data.state === 'running') {
+    const target = data.executableName || data.processName || 'game';
+    setText('game-message', `${data.automatic ? 'Auto-capturing' : 'Capturing'} ${target} · ${new Date().toLocaleTimeString()}`);
+  } else if (data.state === 'waiting') setText('game-message', data.message || 'PresentMon is waiting for rendered frames.');
   else {
     latestGameMetrics = null;
     setText('game-fps', '—');
@@ -1400,6 +1404,19 @@ function handleGameState(data) {
     setText('game-message', data.message || (data.state === 'error' ? 'Could not start PresentMon capture.' : 'Capture stopped.'));
   }
   updateGameControls();
+}
+
+function handleGameAutoState(data) {
+  $('game-auto-detect').checked = Boolean(data.enabled);
+  setText('game-auto-status', data.message || (data.enabled ? 'Auto-detect is on.' : 'Auto-detect is off.'));
+}
+
+function handleGameAutoDetected(data) {
+  const select = $('game-process');
+  const processId = String(data.processId || '');
+  if (!processId || ![...select.options].some((option) => option.value === processId)) return;
+  select.value = processId;
+  onGameProcessChanged();
 }
 
 function handlePresentMonState(data) {
@@ -1422,6 +1439,13 @@ function initGameUi() {
   $('game-process').addEventListener('change', onGameProcessChanged);
   $('btn-process-refresh').addEventListener('click', () => host?.postMessage({ type: 'game-processes' }));
   $('btn-presentmon').addEventListener('click', () => host?.postMessage({ type: 'game-locate-presentmon' }));
+  const autoDetect = $('game-auto-detect');
+  try { autoDetect.checked = localStorage.getItem('hwm-game-auto-detect') !== 'false'; } catch { /* optional */ }
+  autoDetect.addEventListener('change', () => {
+    try { localStorage.setItem('hwm-game-auto-detect', String(autoDetect.checked)); } catch { /* optional */ }
+    setText('game-auto-status', autoDetect.checked ? 'Auto-detect is on. Focus a game to start capture.' : 'Auto-detect is off.');
+    host?.postMessage({ type: 'game-auto-detect', enabled: autoDetect.checked });
+  });
   $('btn-game-start').addEventListener('click', () => {
     const processId = Number($('game-process').value);
     if (!processId || !host) return;
@@ -1435,6 +1459,7 @@ function initGameUi() {
   if (!host) {
     $('game-tool-status').textContent = 'Game capture is available in the desktop app';
     $('btn-presentmon').hidden = true;
+    autoDetect.disabled = true;
   }
   updateGameControls();
 }
@@ -1560,6 +1585,8 @@ function onEvent(event, data) {
     return;
   }
   if (event === 'game-processes') { renderProcesses(data); return; }
+  if (event === 'game-auto-state') { handleGameAutoState(data); return; }
+  if (event === 'game-auto-detected') { handleGameAutoDetected(data); return; }
   if (event === 'procs') { renderTopProcesses(data); return; }
   if (event === 'smart') { smartData = data; applySmart(); return; }
   if (event === 'presentmon-state') { handlePresentMonState(data); return; }
@@ -1610,6 +1637,7 @@ function connectLive() {
     host.addEventListener('message', (e) => handle(e.data.event, e.data.data));
     host.postMessage({ type: 'ready' });
     host.postMessage({ type: 'game-processes' });
+    host.postMessage({ type: 'game-auto-detect', enabled: $('game-auto-detect').checked });
     let savedPresentMonPath = '';
     try { savedPresentMonPath = localStorage.getItem('hwm-presentmon-path') || ''; } catch { /* optional */ }
     host.postMessage({ type: 'presentmon-state', path: savedPresentMonPath });

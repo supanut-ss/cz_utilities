@@ -18,6 +18,19 @@ internal sealed class MainForm : Form
     private const string Origin = "https://hwmonitor.local/";
     private static readonly Color DarkBg = Color.FromArgb(10, 14, 19);
     private static readonly HttpClient PresentMonHttpClient = CreatePresentMonHttpClient();
+    private const string GameCaptureSessionName = "HWMonitor-GameCapture";
+    private static readonly string[] GameInstallPathMarkers =
+    [
+        @"\steamapps\common\", @"\epic games\", @"\xboxgames\", @"\windowsapps\",
+        @"\gog galaxy\games\", @"\gog games\", @"\ubisoft game launcher\games\",
+        @"\origin games\", @"\games\",
+    ];
+    private static readonly HashSet<string> AutoCaptureExcludedProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ApplicationFrameHost", "Battle.net", "ChatGPT", "EADesktop", "EpicGamesLauncher", "explorer",
+        "GameBar", "GameBarFTServer", "GalaxyClient", "HWMonitor", "Paradox Launcher v2", "SearchHost",
+        "ShellExperienceHost", "steam", "steamwebhelper", "UbisoftConnect", "XboxPcApp",
+    };
     private const int OverlayHotkeyId = 0x484D;
     private const uint ModControl = 0x0002;
     private const uint ModShift = 0x0004;
@@ -27,10 +40,19 @@ internal sealed class MainForm : Form
 
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = DarkBg };
     private readonly Collectors _collectors;
+    private readonly System.Windows.Forms.Timer _gameDetectionTimer = new() { Interval = 1000 };
     private readonly Dictionary<string, string> _latestData = new(StringComparer.Ordinal);
     private readonly object _gameCaptureGate = new();
     private OverlayForm? _overlay;
     private Process? _presentMonProcess;
+    private string? _presentMonSessionName;
+    private string? _capturedExecutablePath;
+    private bool _gameCaptureAutomatic;
+    private bool _autoGameCaptureEnabled;
+    private string? _autoCandidatePath;
+    private string? _lastAutoGameStatus;
+    private DateTime _autoCandidateSinceUtc;
+    private DateTime _lastAutoCaptureAttemptUtc;
     private string? _presentMonPath;
     private string _overlayConfigJson = "{\"metrics\":[\"cpu\",\"cpuTemp\",\"gpu\",\"gpuTemp\",\"memory\",\"vram\",\"fps\",\"frameTime\",\"low1\"],\"opacity\":94}";
     private bool _pageReady;
@@ -57,8 +79,13 @@ internal sealed class MainForm : Form
 
         _tray = CreateTrayIcon();
         _collectors = new Collectors(Post);
+        _gameDetectionTimer.Tick += (_, _) => TryAutoCaptureGame();
         Load += async (_, _) => await InitWebViewAsync();
-        Shown += (_, _) => { if (startInTray) Hide(); };
+        Shown += (_, _) =>
+        {
+            if (startInTray) Hide();
+            _gameDetectionTimer.Start();
+        };
         // Per-process sampling is only useful while the dashboard can be seen
         VisibleChanged += (_, _) => _collectors.WatchProcesses = Visible;
         Resize += (_, _) =>
@@ -79,6 +106,8 @@ internal sealed class MainForm : Form
         }, null, Timeout.Infinite, executeOnlyOnce: false);
         FormClosed += (_, _) =>
         {
+            _gameDetectionTimer.Stop();
+            _gameDetectionTimer.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             StopGameCapture(notify: false);
@@ -299,6 +328,16 @@ internal sealed class MainForm : Form
             PostGameProcesses();
             break;
 
+        case "game-auto-detect":
+            _autoGameCaptureEnabled = msg.TryGetProperty("enabled", out var autoDetectValue) &&
+                autoDetectValue.ValueKind == JsonValueKind.True;
+            _autoCandidatePath = null;
+            PostAutoGameStatus(_autoGameCaptureEnabled
+                ? "Auto-detect is on. Focus a game to start capture."
+                : "Auto-detect is off.");
+            if (!_autoGameCaptureEnabled && _gameCaptureAutomatic) StopGameCapture();
+            break;
+
         case "presentmon-state":
             var requestedPath = msg.TryGetProperty("path", out var pathValue) && pathValue.ValueKind == JsonValueKind.String
                 ? pathValue.GetString()
@@ -354,6 +393,8 @@ internal sealed class MainForm : Form
         [property: System.Text.Json.Serialization.JsonPropertyName("name")] string Name,
         [property: System.Text.Json.Serialization.JsonPropertyName("title")] string Title);
 
+    private sealed record AutoGameCandidate(int ProcessId, string ProcessName, string Title, string ExecutablePath);
+
     private void PostGameProcesses()
     {
         var processes = new List<GameProcess>();
@@ -381,6 +422,107 @@ internal sealed class MainForm : Form
             .ThenBy(process => process.Title.Length == 0 ? process.Name : process.Title, StringComparer.CurrentCultureIgnoreCase)
             .Take(120);
         Post("game-processes", JsonSerializer.Serialize(new { processes = result }));
+    }
+
+    private void TryAutoCaptureGame()
+    {
+        if (!_autoGameCaptureEnabled || !_pageReady || !IsPresentMonExecutable(_presentMonPath)) return;
+
+        var candidate = FindAutoGameCandidate();
+        if (candidate is null)
+        {
+            _autoCandidatePath = null;
+            PostAutoGameStatus("Auto-detect is on. Focus a game from Steam, Epic, Xbox, GOG or a Games folder.");
+            return;
+        }
+
+        if (string.Equals(_capturedExecutablePath, candidate.ExecutablePath, StringComparison.OrdinalIgnoreCase) &&
+            IsGameCaptureRunning())
+        {
+            _autoCandidatePath = candidate.ExecutablePath;
+            return;
+        }
+
+        if (!string.Equals(_autoCandidatePath, candidate.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+        {
+            _autoCandidatePath = candidate.ExecutablePath;
+            _autoCandidateSinceUtc = DateTime.UtcNow;
+            PostAutoGameStatus($"Detected {candidate.ProcessName}; confirming the game window…");
+            return;
+        }
+
+        if (DateTime.UtcNow - _autoCandidateSinceUtc < TimeSpan.FromMilliseconds(1500) ||
+            DateTime.UtcNow - _lastAutoCaptureAttemptUtc < TimeSpan.FromSeconds(3)) return;
+
+        _lastAutoCaptureAttemptUtc = DateTime.UtcNow;
+        PostGameProcesses();
+        Post("game-auto-detected", JsonSerializer.Serialize(new
+        {
+            processId = candidate.ProcessId,
+            processName = candidate.ProcessName,
+            title = candidate.Title,
+        }));
+        PostAutoGameStatus($"Auto-capturing {candidate.ProcessName}…");
+        StartGameCapture(candidate.ProcessId, automatic: true);
+    }
+
+    private static AutoGameCandidate? FindAutoGameCandidate()
+    {
+        var candidates = new List<AutoGameCandidate>();
+        foreach (var process in Process.GetProcesses())
+        {
+            try
+            {
+                if (process.Id == Environment.ProcessId || AutoCaptureExcludedProcesses.Contains(process.ProcessName)) continue;
+                var window = process.MainWindowHandle;
+                if (window == IntPtr.Zero || !IsWindowVisible(window) || IsIconic(window)) continue;
+
+                var executablePath = process.MainModule?.FileName;
+                if (string.IsNullOrWhiteSpace(executablePath) || !IsSupportedGamePath(executablePath)) continue;
+                candidates.Add(new AutoGameCandidate(process.Id, process.ProcessName, process.MainWindowTitle, executablePath));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or ArgumentException or NotSupportedException)
+            {
+                // The process may exit or deny module access while the game list is scanned.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+
+        var foregroundProcessId = GetForegroundProcessId();
+        var foregroundCandidate = candidates.FirstOrDefault(candidate => candidate.ProcessId == foregroundProcessId);
+        if (foregroundCandidate is not null) return foregroundCandidate;
+
+        var executablePaths = candidates.Select(candidate => candidate.ExecutablePath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(2)
+            .Count();
+        return executablePaths == 1 ? candidates[0] : null;
+    }
+
+    private static bool IsSupportedGamePath(string executablePath)
+    {
+        var normalizedPath = executablePath.Replace('/', '\\');
+        return GameInstallPathMarkers.Any(marker => normalizedPath.Contains(marker, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool IsGameCaptureRunning()
+    {
+        lock (_gameCaptureGate)
+        {
+            if (_presentMonProcess is null) return false;
+            try { return !_presentMonProcess.HasExited; }
+            catch (InvalidOperationException) { return false; }
+        }
+    }
+
+    private void PostAutoGameStatus(string message)
+    {
+        if (string.Equals(_lastAutoGameStatus, message, StringComparison.Ordinal)) return;
+        _lastAutoGameStatus = message;
+        Post("game-auto-state", JsonSerializer.Serialize(new { enabled = _autoGameCaptureEnabled, message }));
     }
 
     private async Task ResolvePresentMonAsync(string? preferredPath)
@@ -562,7 +704,7 @@ internal sealed class MainForm : Form
         Post("presentmon-state", JsonSerializer.Serialize(new { path = _presentMonPath }));
     }
 
-    private void StartGameCapture(int processId)
+    private void StartGameCapture(int processId, bool automatic = false)
     {
         if (!IsPresentMonExecutable(_presentMonPath))
         {
@@ -571,10 +713,12 @@ internal sealed class MainForm : Form
         }
 
         string processName;
+        string executablePath;
         try
         {
             using var target = Process.GetProcessById(processId);
             processName = target.ProcessName;
+            executablePath = target.MainModule?.FileName ?? string.Empty;
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
         {
@@ -582,6 +726,8 @@ internal sealed class MainForm : Form
             return;
         }
 
+        var executableName = Path.GetFileName(executablePath);
+        if (string.IsNullOrWhiteSpace(executableName)) executableName = processName + ".exe";
         StopGameCapture(notify: false);
         var startInfo = new ProcessStartInfo(_presentMonPath!)
         {
@@ -592,9 +738,9 @@ internal sealed class MainForm : Form
         };
         foreach (var argument in new[]
         {
-            "--process_id", processId.ToString(CultureInfo.InvariantCulture),
+            "--process_name", executableName,
             "--output_stdout", "--no_console_stats", "--v1_metrics",
-            "--session_name", $"HWMonitor-{Environment.ProcessId}-{processId}",
+            "--session_name", GameCaptureSessionName,
             "--stop_existing_session", "--terminate_on_proc_exit",
         })
             startInfo.ArgumentList.Add(argument);
@@ -608,9 +754,15 @@ internal sealed class MainForm : Form
                 return;
             }
 
-            lock (_gameCaptureGate) _presentMonProcess = process;
-            Post("game-state", JsonSerializer.Serialize(new { state = "running", processId, processName }));
-            _ = CapturePresentMonAsync(process, processName);
+            lock (_gameCaptureGate)
+            {
+                _presentMonProcess = process;
+                _presentMonSessionName = GameCaptureSessionName;
+                _capturedExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath;
+                _gameCaptureAutomatic = automatic;
+            }
+            Post("game-state", JsonSerializer.Serialize(new { state = "running", processId, processName, executableName, automatic }));
+            _ = CapturePresentMonAsync(process, processName, automatic);
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
         {
@@ -621,19 +773,26 @@ internal sealed class MainForm : Form
     private void StopGameCapture(bool notify = true)
     {
         Process? process;
+        string? sessionName;
         lock (_gameCaptureGate)
         {
             process = _presentMonProcess;
             _presentMonProcess = null;
+            sessionName = _presentMonSessionName;
+            _presentMonSessionName = null;
+            _capturedExecutablePath = null;
+            _gameCaptureAutomatic = false;
         }
 
+        StopPresentMonSession(sessionName);
         if (process is not null)
         {
             try
             {
+                if (!process.HasExited) process.WaitForExit(1000);
                 if (!process.HasExited) process.Kill(entireProcessTree: true);
             }
-            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
+            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException or ObjectDisposedException)
             {
                 // It may have exited while the capture is stopping.
             }
@@ -641,13 +800,46 @@ internal sealed class MainForm : Form
         if (notify) Post("game-state", JsonSerializer.Serialize(new { state = "stopped", message = "Capture stopped." }));
     }
 
-    private async Task CapturePresentMonAsync(Process process, string processName)
+    private void StopPresentMonSession(string? sessionName)
     {
-        var errors = new ConcurrentQueue<string>();
-        var errorReader = ReadPresentMonErrorsAsync(process, errors);
-        var outputReader = ReadPresentMonMetricsAsync(process, processName);
+        if (string.IsNullOrWhiteSpace(sessionName) || !IsPresentMonExecutable(_presentMonPath)) return;
         try
         {
+            var startInfo = new ProcessStartInfo(_presentMonPath!)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            startInfo.ArgumentList.Add("--session_name");
+            startInfo.ArgumentList.Add(sessionName);
+            startInfo.ArgumentList.Add("--terminate_existing_session");
+            using var stopper = Process.Start(startInfo);
+            if (stopper is not null && !stopper.WaitForExit(2000)) stopper.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or NotSupportedException)
+        {
+            // Starting the next capture also uses --stop_existing_session for this name.
+        }
+    }
+
+    private async Task CapturePresentMonAsync(Process process, string processName, bool automatic)
+    {
+        var errors = new ConcurrentQueue<string>();
+        var firstFrame = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var errorReader = ReadPresentMonErrorsAsync(process, errors);
+        var outputReader = ReadPresentMonMetricsAsync(process, processName, firstFrame);
+        try
+        {
+            var exitTask = process.WaitForExitAsync();
+            var firstFrameOrExit = await Task.WhenAny(firstFrame.Task, exitTask, Task.Delay(TimeSpan.FromSeconds(8)));
+            if (firstFrameOrExit != firstFrame.Task && firstFrameOrExit != exitTask && !process.HasExited)
+                Post("game-state", JsonSerializer.Serialize(new
+                {
+                    state = "waiting",
+                    message = $"PresentMon is watching {processName}, waiting for rendered frames.",
+                    automatic,
+                }));
+
             await process.WaitForExitAsync();
             var hasHeader = await outputReader;
             await errorReader;
@@ -701,7 +893,7 @@ internal sealed class MainForm : Form
         }
     }
 
-    private async Task<bool> ReadPresentMonMetricsAsync(Process process, string processName)
+    private async Task<bool> ReadPresentMonMetricsAsync(Process process, string processName, TaskCompletionSource<bool> firstFrame)
     {
         string[]? headers = null;
         var frameIndex = -1;
@@ -728,6 +920,7 @@ internal sealed class MainForm : Form
             if (fields.Length <= frameIndex || !double.TryParse(fields[frameIndex], NumberStyles.Float, CultureInfo.InvariantCulture, out var frameMs) ||
                 !double.IsFinite(frameMs) || frameMs <= 0 || frameMs > 1000) continue;
 
+            firstFrame.TrySetResult(true);
             var now = DateTime.UtcNow;
             rollingFrames.Enqueue((now, frameMs));
             currentFrames.Add(frameMs);
@@ -806,6 +999,26 @@ internal sealed class MainForm : Form
                 core.PostWebMessageAsJson($"{{\"event\":{JsonSerializer.Serialize(evt)},\"data\":{json}}}");
         });
     }
+
+    private static int GetForegroundProcessId()
+    {
+        var foregroundWindow = GetForegroundWindow();
+        if (foregroundWindow == IntPtr.Zero) return 0;
+        _ = GetWindowThreadProcessId(foregroundWindow, out var processId);
+        return processId <= int.MaxValue ? (int)processId : 0;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
