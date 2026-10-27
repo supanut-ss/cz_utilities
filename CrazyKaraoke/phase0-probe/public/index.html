@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ทดลองเฟส 0 · YouTube Player</title>
+    <style>
+      :root { color-scheme: dark; font-family: "Segoe UI", sans-serif; background: #10131a; color: #edf0f7; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 28px 18px 48px; }
+      main { width: min(1080px, 100%); margin: auto; }
+      h1, h2 { margin: 0 0 12px; }
+      h1 { font-size: clamp(1.5rem, 4vw, 2.2rem); }
+      h2 { font-size: 1.15rem; }
+      p { color: #bbc2d1; line-height: 1.6; }
+      section { margin-top: 22px; padding: 20px; border: 1px solid #303745; border-radius: 14px; background: #171c25; }
+      .status { margin: 8px 0 14px; color: #9de4c0; }
+      .status.warn { color: #ffd078; }
+      .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+      input, select, button { min-height: 42px; border: 1px solid #465064; border-radius: 8px; background: #0f131a; color: inherit; padding: 9px 12px; font: inherit; }
+      input[type="search"] { flex: 1 1 260px; }
+      input[type="text"] { flex: 1 1 220px; }
+      input[type="number"] { width: 110px; }
+      button { cursor: pointer; background: #313d55; border-color: #526486; }
+      button:hover { background: #405274; }
+      button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #8aaaff; outline-offset: 2px; }
+      .hint { font-size: .9rem; }
+      .list { display: grid; gap: 9px; margin-top: 12px; }
+      .item { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-top: 1px solid #303745; padding-top: 12px; }
+      .item-title { font-weight: 600; }
+      .item-meta { display: block; margin-top: 4px; color: #aeb7c9; font-size: .9rem; }
+      .item-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+      #player-shell { width: min(100%, 960px); min-width: 200px; margin-top: 14px; }
+      #player { width: 100%; aspect-ratio: 16 / 9; min-height: 200px; background: #080a0e; }
+      #player-status { margin-top: 10px; color: #9de4c0; }
+      #event-log { max-height: 220px; overflow: auto; padding: 12px; background: #0d1016; border-radius: 8px; color: #c8cfdb; font: .84rem/1.6 ui-monospace, monospace; white-space: pre-wrap; }
+      .tag { display: inline-block; margin-left: 6px; padding: 2px 7px; border-radius: 99px; background: #283244; color: #d3def2; font-size: .78rem; }
+      @media (max-width: 620px) { body { padding: 18px 12px 32px; } section { padding: 15px; } .item { align-items: flex-start; flex-direction: column; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>ต้นแบบตรวจสอบเฟส 0</h1>
+      <p>ใช้ทดสอบ YouTube Data API, สถานะการฝัง และ YouTube Player บนเครื่องนี้เท่านั้น ตัว API key อยู่ฝั่งเซิร์ฟเวอร์ ไม่ส่งไปยังหน้าเว็บ</p>
+      <div id="api-status" class="status warn" role="status">กำลังตรวจสถานะ API key…</div>
+
+      <section aria-labelledby="search-heading">
+        <h2 id="search-heading">ค้นหาวิดีโอ</h2>
+        <form id="search-form" class="row">
+          <input id="query" type="search" maxlength="120" placeholder="ชื่อเพลงหรือศิลปิน" aria-label="คำค้น" required />
+          <select id="embeddable" aria-label="ตัวกรองการฝัง">
+            <option value="true">ค้นหาเฉพาะวิดีโอที่ฝังได้</option>
+            <option value="any">รวมวิดีโอทุกสถานะ</option>
+          </select>
+          <button type="submit">ค้นหา</button>
+        </form>
+        <div id="search-status" class="status" role="status"></div>
+        <div id="results" class="list" aria-live="polite"></div>
+      </section>
+
+      <section aria-labelledby="queue-heading">
+        <h2 id="queue-heading">รายการทดลอง</h2>
+        <p class="hint">เพิ่มผลค้นหาไว้ในรายการนี้ แล้วเลือกเล่นเพื่อทดสอบการฝัง</p>
+        <div id="test-list" class="list" aria-live="polite"></div>
+        <div class="row" style="margin-top:14px">
+          <input id="manual-video-id" type="text" value="M7lc1UVf-VE" aria-label="YouTube video ID" />
+          <label for="end-seconds">หยุดทดสอบที่วินาที</label>
+          <input id="end-seconds" type="number" min="0" max="600" value="8" aria-label="หยุดที่วินาที" />
+          <button id="play-manual" type="button">เล่น video ID นี้</button>
+        </div>
+        <p class="hint">ใส่ 0 เพื่อเล่นจนจบทั้งวิดีโอ ในตัวเล่นให้กดปุ่มเต็มจอของ YouTube เอง</p>
+      </section>
+
+      <section aria-labelledby="player-heading">
+        <h2 id="player-heading">YouTube Player</h2>
+        <p class="hint">ต้องแสดงตัวเล่นและปุ่ม YouTube ครบ ไม่มีส่วนใดทับตัวเล่น</p>
+        <div id="player-shell"><div id="player"></div></div>
+        <div id="player-status" role="status">กำลังโหลด IFrame Player API…</div>
+      </section>
+
+      <section aria-labelledby="events-heading">
+        <h2 id="events-heading">เหตุการณ์ตัวเล่น</h2>
+        <div id="event-log" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script>
+      const apiStatus = document.querySelector("#api-status");
+      const searchStatus = document.querySelector("#search-status");
+      const resultBox = document.querySelector("#results");
+      const testList = document.querySelector("#test-list");
+      const playerStatus = document.querySelector("#player-status");
+      const eventLog = document.querySelector("#event-log");
+      const testItems = [];
+      let player = null;
+
+      function logEvent(message) {
+        const stamp = new Date().toLocaleTimeString();
+        eventLog.textContent = `[${stamp}] ${message}\n` + eventLog.textContent;
+      }
+
+      async function checkApiKey() {
+        try {
+          const response = await fetch("/api/health", { cache: "no-store" });
+          const data = await response.json();
+          apiStatus.textContent = data.apiKeyConfigured
+            ? "API key พร้อมใช้งานบนเซิร์ฟเวอร์ทดลอง"
+            : "ยังไม่พบ API key ใน environment ของเซิร์ฟเวอร์ทดลอง";
+          apiStatus.classList.toggle("warn", !data.apiKeyConfigured);
+        } catch {
+          apiStatus.textContent = "เชื่อมต่อเซิร์ฟเวอร์ทดลองไม่สำเร็จ";
+          apiStatus.classList.add("warn");
+        }
+      }
+
+      function createItem(item, canQueue) {
+        const row = document.createElement("div");
+        row.className = "item";
+        const details = document.createElement("div");
+        const title = document.createElement("span");
+        title.className = "item-title";
+        title.textContent = item.title;
+        const meta = document.createElement("span");
+        meta.className = "item-meta";
+        const embed = item.embeddable === true ? "ฝังได้ตาม Data API" : item.embeddable === false ? "Data API ระบุว่าฝังไม่ได้" : "ยังยืนยันสถานะฝังไม่ได้";
+        const kids = item.madeForKids === true ? " · Made for Kids" : item.madeForKids === false ? " · ไม่ใช่ Made for Kids" : " · ไม่ทราบ Made for Kids";
+        meta.textContent = `${item.channelTitle || ""} · ${item.videoId} · ${embed}${kids}`;
+        details.append(title, meta);
+        const actions = document.createElement("div");
+        actions.className = "item-actions";
+        if (canQueue) {
+          const add = document.createElement("button");
+          add.type = "button";
+          add.textContent = "เพิ่มรายการทดลอง";
+          add.addEventListener("click", () => addToTestList(item));
+          actions.append(add);
+        }
+        const play = document.createElement("button");
+        play.type = "button";
+        play.textContent = "โหลดตัวเล่น";
+        play.addEventListener("click", () => {
+          document.querySelector("#manual-video-id").value = item.videoId;
+          startPlayback(item.videoId);
+        });
+        actions.append(play);
+        row.append(details, actions);
+        return row;
+      }
+
+      function addToTestList(item) {
+        if (testItems.some((entry) => entry.videoId === item.videoId)) {
+          searchStatus.textContent = "วิดีโอนี้อยู่ในรายการทดลองแล้ว";
+          return;
+        }
+        testItems.push(item);
+        testList.append(createItem(item, false));
+        searchStatus.textContent = "เพิ่มในรายการทดลองแล้ว";
+      }
+
+      document.querySelector("#search-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        resultBox.replaceChildren();
+        searchStatus.textContent = "กำลังค้นหา…";
+        const params = new URLSearchParams({
+          q: document.querySelector("#query").value.trim(),
+          embeddable: document.querySelector("#embeddable").value,
+        });
+        try {
+          const response = await fetch(`/api/search?${params}`, { cache: "no-store" });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || data.error || "ค้นหาไม่สำเร็จ");
+          resultBox.replaceChildren(...data.items.map((item) => createItem(item, true)));
+          searchStatus.textContent = data.items.length ? `พบ ${data.items.length} รายการจาก YouTube` : "ไม่พบผลลัพธ์";
+          if (data.statusWarning) searchStatus.textContent += ` · อ่านสถานะวิดีโอไม่สำเร็จ: ${data.statusWarning}`;
+          logEvent(`ค้นหา ${data.items.length} รายการ; videoEmbeddable=${params.get("embeddable")}`);
+        } catch (error) {
+          searchStatus.textContent = error.message;
+          logEvent(`ค้นหาล้มเหลว: ${error.message}`);
+        }
+      });
+
+      function startPlayback(videoId) {
+        if (!player || !window.__phase0PlayerReady) {
+          playerStatus.textContent = "IFrame Player API ยังไม่พร้อม";
+          return;
+        }
+        const endSeconds = Number(document.querySelector("#end-seconds").value || 0);
+        const options = { videoId, startSeconds: 0 };
+        if (endSeconds > 0) options.endSeconds = endSeconds;
+        playerStatus.textContent = `กำลังโหลด ${videoId}…`;
+        logEvent(`ผู้ใช้เลือกเล่น ${videoId}${endSeconds > 0 ? ` (ช่วงทดสอบ ${endSeconds} วินาที)` : " (ทั้งวิดีโอ)"}`);
+        player.loadVideoById(options);
+      }
+
+      document.querySelector("#play-manual").addEventListener("click", () => {
+        startPlayback(document.querySelector("#manual-video-id").value.trim());
+      });
+
+      window.__phase0PlayerReady = false;
+      window.__phase0PlayerState = null;
+      window.onYouTubeIframeAPIReady = () => {
+        player = new YT.Player("player", {
+          width: "100%",
+          height: "100%",
+          videoId: "M7lc1UVf-VE",
+          playerVars: {
+            controls: 1,
+            fs: 1,
+            playsinline: 1,
+            origin: window.location.origin,
+          },
+          events: {
+            onReady: (event) => {
+              window.__phase0PlayerReady = true;
+              clearTimeout(window.__phase0PlayerLoadTimeout);
+              playerStatus.textContent = "ตัวเล่นพร้อม · กดโหลดวิดีโอเพื่อเริ่มทดสอบ";
+              logEvent("IFrame Player API พร้อม");
+            },
+            onStateChange: (event) => {
+              window.__phase0PlayerState = event.data;
+              const labels = { "-1": "ยังไม่เริ่ม", "0": "จบ (ENDED)", "1": "กำลังเล่น", "2": "หยุดชั่วคราว", "3": "กำลังบัฟเฟอร์", "5": "พร้อมเล่น" };
+              const label = labels[String(event.data)] || `สถานะ ${event.data}`;
+              playerStatus.textContent = label;
+              logEvent(`Player state: ${label}`);
+            },
+            onError: (event) => {
+              const errors = {
+                2: "พารามิเตอร์หรือ video ID ไม่ถูกต้อง",
+                5: "เล่นวิดีโอนี้ด้วย HTML5 Player ไม่ได้",
+                100: "วิดีโอไม่พบ ถูกลบ หรือเป็นส่วนตัว",
+                101: "เจ้าของวิดีโอไม่อนุญาตให้ฝัง",
+                150: "เจ้าของวิดีโอไม่อนุญาตให้ฝัง",
+                153: "ไม่พบ HTTP Referer หรือข้อมูลระบุตัว API Client",
+              };
+              playerStatus.textContent = `Player error ${event.data}: ${errors[event.data] || "ข้อผิดพลาดที่ไม่รู้จัก"}`;
+              logEvent(`Player error: ${event.data} · ${errors[event.data] || "ไม่ทราบสาเหตุ"}`);
+            },
+          },
+        });
+      };
+
+      const iframeApi = document.createElement("script");
+      iframeApi.src = "https://www.youtube.com/iframe_api";
+      iframeApi.onerror = () => {
+        playerStatus.textContent = "โหลด YouTube IFrame Player API ไม่สำเร็จ";
+        logEvent("โหลด IFrame Player API ไม่สำเร็จ");
+      };
+      document.head.append(iframeApi);
+      window.__phase0PlayerLoadTimeout = setTimeout(() => {
+        if (!window.__phase0PlayerReady) {
+          playerStatus.textContent = "IFrame Player API ไม่ตอบสนองภายใน 10 วินาที";
+          logEvent("IFrame Player API ยังไม่ตอบสนอง · ตรวจสอบการเชื่อมต่อ www.youtube.com");
+        }
+      }, 10000);
+      checkApiKey();
+    </script>
+  </body>
+</html>

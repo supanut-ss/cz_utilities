@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#171521" />
+    <title>Karaoke Club — คืนนี้ร้องอะไรดี</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <a class="skip-link" href="#entry-title">ข้ามไปยังเนื้อหาหลัก</a>
+      <header class="site-header">
+        <a class="brand" href="/" aria-label="Karaoke Club หน้าหลัก">
+          <span class="brand-mark" aria-hidden="true">K</span>
+          <span class="brand-name">Karaoke Club</span>
+        </a>
+        <span class="header-note">ห้องร้องเพลงกับเพื่อน</span>
+      </header>
+
+      <main>
+        <section id="entry-view" class="entry-view" aria-labelledby="entry-title">
+          <div class="hero-copy">
+            <div class="record-art" aria-hidden="true">
+              <span class="record-label"></span>
+              <span class="record-glint"></span>
+            </div>
+            <p class="hero-kicker">ไมค์พร้อม · เพื่อนพร้อม</p>
+            <h1 id="entry-title" tabindex="-1">คืนนี้<br />ร้องเพลง<br /><span>อะไรกันดี</span></h1>
+            <p class="hero-description">เปิดห้อง ชวนเพื่อน แล้วเลือกเพลงแรกด้วยกัน</p>
+            <div class="room-note">
+              <span class="note-mark" aria-hidden="true">✳</span>
+              <span>ห้องส่วนตัวของกลุ่มคุณ<br />เข้าร่วมได้ด้วยรหัสหรือ ลิงก์ชวน</span>
+            </div>
+          </div>
+
+          <section class="entry-panel" aria-label="สร้างห้องหรือเข้าร่วมห้อง">
+            <div class="entry-section">
+              <div class="entry-heading">
+                <span class="step-mark" aria-hidden="true">+</span>
+                <div>
+                  <h2>เปิดห้องใหม่</h2>
+                  <p>คุณจะเป็นโฮสต์ของห้องนี้</p>
+                </div>
+              </div>
+              <form id="create-form" class="entry-form">
+                <label for="create-nickname">ชื่อเล่นของคุณ</label>
+                <input id="create-nickname" name="nickname" type="text" maxlength="24" autocomplete="nickname" placeholder="เช่น มะลิ" required />
+                <button class="button button-primary" type="submit">สร้างห้องร้องเพลง</button>
+              </form>
+            </div>
+
+            <div class="entry-divider"><span>หรือมีรหัสห้องแล้ว</span></div>
+
+            <div class="entry-section join-section">
+              <div class="entry-heading">
+                <span class="step-mark step-mark-lilac" aria-hidden="true">↗</span>
+                <div>
+                  <h2>เข้าร่วมวง</h2>
+                  <p>ใส่รหัสที่เพื่อนส่งให้</p>
+                </div>
+              </div>
+              <form id="join-form" class="entry-form">
+                <label for="join-nickname">ชื่อเล่นของคุณ</label>
+                <input id="join-nickname" name="nickname" type="text" maxlength="24" autocomplete="nickname" placeholder="เช่น มะลิ" required />
+                <label for="room-code-input">รหัสห้อง</label>
+                <input id="room-code-input" name="roomCode" class="room-code-input" type="text" maxlength="5" inputmode="text" autocomplete="off" autocapitalize="characters" placeholder="เช่น 7K4QP" required />
+                <button class="button button-secondary" type="submit">เข้าห้องนี้</button>
+              </form>
+            </div>
+            <p id="entry-feedback" class="form-feedback" role="status" aria-live="polite"></p>
+          </section>
+        </section>
+
+        <section id="room-view" class="room-view" aria-labelledby="room-title" hidden>
+          <header class="room-header">
+            <div class="room-title-block">
+              <p class="room-eyebrow">ห้องร้องเพลงของคุณ</p>
+              <h1 id="room-title" tabindex="-1">เวทีของคืนนี้</h1>
+            </div>
+            <div class="room-actions">
+              <div class="room-code-wrap">
+                <span class="room-code-label">รหัสชวนเพื่อน</span>
+                <strong id="room-code-display" class="room-code-display">-----</strong>
+              </div>
+              <button id="invite-button" class="button button-invite" type="button">คัดลอกลิงก์ชวน</button>
+              <span id="connection-indicator" class="connection-indicator" data-state="connected"><span></span>เชื่อมต่อแล้ว</span>
+            </div>
+          </header>
+
+          <div class="room-layout">
+            <section class="stage-panel" aria-labelledby="stage-title">
+              <div class="stage-topline">
+                <span class="stage-dot" aria-hidden="true"></span>
+                <span id="room-status">ห้องกำลังรอเพลงแรก</span>
+                <span class="stage-line" aria-hidden="true"></span>
+                <span id="player-count" class="stage-count">1 คนในห้อง</span>
+              </div>
+              <div class="stage-main">
+                <div id="stage-art" class="stage-art" aria-hidden="true">
+                  <span class="stage-lamp"></span>
+                  <span class="stage-record"></span>
+                </div>
+                <div class="stage-copy">
+                  <p id="stage-kicker" class="stage-kicker">ไมค์อยู่ที่ใคร</p>
+                  <h2 id="stage-title">เวทีว่างอยู่</h2>
+                  <p id="singer-label" class="singer-label">ยังไม่มีผู้ร้อง · รอเริ่มรอบแรก</p>
+                </div>
+              </div>
+              <div id="player-frame" class="player-frame" hidden>
+                <div class="youtube-player"><div id="youtube-player-target"></div></div>
+                <p class="player-brand-note">การควบคุมและปุ่มเต็มจออยู่ใน YouTube Player</p>
+              </div>
+              <section id="scoring-panel" class="scoring-panel" aria-labelledby="scoring-title" hidden>
+                <div class="scoring-heading">
+                  <div>
+                    <p class="scoring-eyebrow">หลังเพลงจบ</p>
+                    <h3 id="scoring-title">คะแนนผู้ร้อง</h3>
+                  </div>
+                  <span id="scoring-mode-badge" class="scoring-mode-badge">โหวตจากผู้ฟัง</span>
+                </div>
+                <p id="scoring-status" class="scoring-status"></p>
+                <div id="mic-controls" class="mic-controls" hidden>
+                  <div class="mic-actions">
+                    <button id="enable-mic-button" class="button button-mic" type="button">เปิดไมค์ก่อนเริ่มเพลง</button>
+                    <button id="stop-mic-button" class="text-button text-button-dark" type="button" hidden>ปิดไมค์</button>
+                  </div>
+                  <label for="mic-level-meter">ระดับเสียงไมค์</label>
+                  <progress id="mic-level-meter" class="mic-level-meter" max="1" value="0">0%</progress>
+                  <p id="mic-status" class="mic-status" role="status" aria-live="polite"></p>
+                </div>
+                <div id="automatic-score-result" class="automatic-score-result" hidden>
+                  <strong id="automatic-score-value"></strong>
+                  <span id="automatic-score-detail"></span>
+                </div>
+                <div id="vote-panel" class="vote-panel" hidden>
+                  <p id="vote-prompt" class="vote-prompt">ให้คะแนนเสียงร้อง 1–5</p>
+                  <div class="vote-actions" role="group" aria-label="ให้คะแนนผู้ร้องตั้งแต่ 1 ถึง 5">
+                    <button class="vote-button" type="button" data-vote="1" aria-label="1 คะแนน">1</button>
+                    <button class="vote-button" type="button" data-vote="2" aria-label="2 คะแนน">2</button>
+                    <button class="vote-button" type="button" data-vote="3" aria-label="3 คะแนน">3</button>
+                    <button class="vote-button" type="button" data-vote="4" aria-label="4 คะแนน">4</button>
+                    <button class="vote-button" type="button" data-vote="5" aria-label="5 คะแนน">5</button>
+                  </div>
+                  <p id="vote-summary" class="vote-summary"></p>
+                </div>
+                <form id="song-report-form" class="song-report-form">
+                  <label for="song-report-reason">พบปัญหาเพลงนี้?</label>
+                  <div class="song-report-actions">
+                    <select id="song-report-reason" name="reason">
+                      <option value="video_unavailable">วิดีโอเปิดไม่ได้</option>
+                      <option value="wrong_video">ไม่ใช่เพลงที่เลือก</option>
+                      <option value="audio_problem">เสียงมีปัญหา</option>
+                      <option value="other">ปัญหาอื่น</option>
+                    </select>
+                    <button id="song-report-button" class="button button-report" type="submit">ส่งรายงาน</button>
+                  </div>
+                  <p id="song-report-status" class="song-report-status" role="status" aria-live="polite"></p>
+                </form>
+                <p id="scoring-feedback" class="scoring-feedback" role="status" aria-live="polite"></p>
+              </section>
+              <div class="stage-footer">
+                <p id="stage-hint">ชวนเพื่อนเข้าห้องได้เลย แล้วเลือกเพลงแรกด้วยกัน</p>
+                <div id="host-controls" class="host-controls" hidden>
+                  <span class="host-note"><span aria-hidden="true">✦</span> คุณเป็นโฮสต์</span>
+                  <div class="playback-actions">
+                    <button id="play-song-button" class="button button-play" type="button">เริ่มเพลงถัดไป</button>
+                    <button id="skip-song-button" class="text-button text-button-danger" type="button" hidden>ข้ามเพลง</button>
+                  </div>
+                  <button id="close-room-button" class="text-button text-button-danger" type="button">ปิดห้อง</button>
+                </div>
+                <p id="player-feedback" class="player-feedback" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+
+            <aside class="players-panel" aria-labelledby="players-title">
+              <div class="players-heading">
+                <div>
+                  <p class="players-eyebrow">อยู่ในวง</p>
+                  <h2 id="players-title">คนในห้อง</h2>
+                </div>
+                <span id="player-count-badge" class="player-count-badge">1</span>
+              </div>
+              <ul id="player-list" class="player-list" aria-live="polite"></ul>
+              <div class="players-bottom">
+                <p>โฮสต์ดูแลห้องและโอนสิทธิ์ได้ทุกเมื่อ</p>
+                <button id="leave-room-button" class="text-button" type="button">ออกจากห้อง</button>
+              </div>
+            </aside>
+          </div>
+          <section class="music-desk" aria-labelledby="music-title">
+            <div class="music-heading">
+              <div>
+                <p class="players-eyebrow">เลือกเพลงให้วง</p>
+                <h2 id="music-title">ค้นหาและจัดคิว</h2>
+              </div>
+              <p class="music-note">ค้นหาเฉพาะวิดีโอที่ฝังได้ · เพิ่มได้ 3 เพลงต่อคน</p>
+            </div>
+            <div class="music-layout">
+              <section class="search-panel" aria-labelledby="search-title">
+                <h3 id="search-title">ค้นหา YouTube</h3>
+                <form id="music-search-form" class="music-search-form">
+                  <label class="visually-hidden" for="music-query">ชื่อเพลงหรือศิลปิน</label>
+                  <input id="music-query" name="query" type="search" maxlength="120" placeholder="ชื่อเพลงหรือศิลปิน" required />
+                  <button class="button button-primary" type="submit">ค้นหา</button>
+                </form>
+                <p id="search-feedback" class="inline-feedback" role="status" aria-live="polite"></p>
+                <div id="search-results" class="search-results" aria-live="polite"></div>
+                <button id="load-more-button" class="button button-more" type="button" hidden>แสดงผลเพิ่ม</button>
+              </section>
+              <section class="queue-panel" aria-labelledby="queue-title">
+                <div class="queue-heading">
+                  <div>
+                    <p class="players-eyebrow">เพลงถัดไป</p>
+                    <h3 id="queue-title">คิวของห้อง</h3>
+                  </div>
+                  <span id="queue-count" class="player-count-badge">0</span>
+                </div>
+                <ol id="queue-list" class="queue-list" aria-live="polite"></ol>
+                <p id="queue-empty" class="queue-empty">คิวยังว่างอยู่<br /><span>ค้นหาเพลงแล้วเพิ่มเพลงแรกได้เลย</span></p>
+              </section>
+            </div>
+          </section>
+          <p id="room-feedback" class="room-feedback" role="status" aria-live="polite"></p>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <span>ห้องที่ดีเริ่มจากเพลงแรก</span>
+        <span class="footer-spark" aria-hidden="true">✳</span>
+      </footer>
+    </div>
+  </body>
+</html>

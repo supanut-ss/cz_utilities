@@ -1,0 +1,52 @@
+{
+  "baseUrl": "http://127.0.0.1:4173/",
+  "roomCode": "8YMPJ",
+  "checks": [
+    {
+      "check": "landing page loads",
+      "passed": true
+    },
+    {
+      "check": "keyboard skip link receives first focus",
+      "passed": true
+    },
+    {
+      "check": "host can create a room",
+      "passed": true
+    },
+    {
+      "check": "invite link copies the current room code",
+      "passed": true
+    },
+    {
+      "check": "guest can join and both clients sync membership",
+      "passed": true
+    },
+    {
+      "check": "host rights transfer to the guest",
+      "passed": true
+    },
+    {
+      "check": "new host can remove a player",
+      "passed": true
+    },
+    {
+      "check": "host can close the test room",
+      "passed": true
+    },
+    {
+      "check": "375px landing page has no horizontal overflow",
+      "passed": true
+    },
+    {
+      "check": "no YouTube requests were made",
+      "passed": true
+    },
+    {
+      "check": "no uncaught browser errors",
+      "passed": true
+    }
+  ],
+  "pageErrors": [],
+  "youtubeRequests": []
+}
