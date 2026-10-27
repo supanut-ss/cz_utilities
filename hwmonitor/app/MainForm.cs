@@ -29,7 +29,8 @@ internal sealed class MainForm : Form
     {
         "ApplicationFrameHost", "Battle.net", "ChatGPT", "EADesktop", "EpicGamesLauncher", "explorer",
         "GameBar", "GameBarFTServer", "GalaxyClient", "HWMonitor", "Paradox Launcher v2", "SearchHost",
-        "ShellExperienceHost", "steam", "steamwebhelper", "UbisoftConnect", "XboxPcApp",
+        "ScreenClippingHost", "ScreenSketch", "ShellExperienceHost", "SnippingTool", "steam", "steamwebhelper",
+        "UbisoftConnect", "XboxPcApp",
     };
     private const int OverlayHotkeyId = 0x484D;
     private const uint ModControl = 0x0002;
@@ -428,6 +429,13 @@ internal sealed class MainForm : Form
     {
         if (!_autoGameCaptureEnabled || !_pageReady || !IsPresentMonExecutable(_presentMonPath)) return;
 
+        if (IsManualGameCaptureRunning())
+        {
+            _autoCandidatePath = null;
+            PostAutoGameStatus("Manual capture is active. Auto-detect will resume when it stops.");
+            return;
+        }
+
         var candidate = FindAutoGameCandidate();
         if (candidate is null)
         {
@@ -513,6 +521,16 @@ internal sealed class MainForm : Form
         lock (_gameCaptureGate)
         {
             if (_presentMonProcess is null) return false;
+            try { return !_presentMonProcess.HasExited; }
+            catch (InvalidOperationException) { return false; }
+        }
+    }
+
+    private bool IsManualGameCaptureRunning()
+    {
+        lock (_gameCaptureGate)
+        {
+            if (_gameCaptureAutomatic || _presentMonProcess is null) return false;
             try { return !_presentMonProcess.HasExited; }
             catch (InvalidOperationException) { return false; }
         }
