@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#171521" />
     <title>Karaoke Club — คืนนี้ร้องอะไรดี</title>
     <link rel="stylesheet" href="/styles.css" />
+    <script src="/qrcodegen.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -85,6 +86,7 @@
                 <strong id="room-code-display" class="room-code-display">-----</strong>
               </div>
               <button id="invite-button" class="button button-invite" type="button">คัดลอกลิงก์ชวน</button>
+              <button id="show-qr-button" class="button button-invite" type="button">แสดง QR</button>
               <span id="connection-indicator" class="connection-indicator" data-state="connected"><span></span>เชื่อมต่อแล้ว</span>
             </div>
           </header>
@@ -225,6 +227,27 @@
           <p id="room-feedback" class="room-feedback" role="status" aria-live="polite"></p>
         </section>
       </main>
+
+      <dialog id="invite-dialog" class="invite-dialog" aria-labelledby="invite-dialog-title" aria-describedby="invite-dialog-help">
+        <div class="invite-dialog-content">
+          <header class="invite-dialog-header">
+            <div>
+              <h2 id="invite-dialog-title">สแกนเพื่อเข้าห้อง</h2>
+              <p id="invite-dialog-help">ให้เพื่อนสแกน QR หรือกรอกรหัสห้องนี้</p>
+            </div>
+            <button id="close-invite-dialog" class="invite-dialog-close" type="button" aria-label="ปิดหน้าต่างเชิญ">ปิด</button>
+          </header>
+          <div class="invite-qr-frame">
+            <div id="invite-qr" aria-live="polite"></div>
+          </div>
+          <p class="invite-code-label">รหัสห้อง</p>
+          <p id="invite-room-code" class="invite-room-code"></p>
+          <a id="invite-url" class="invite-url"></a>
+          <p id="invite-copy-feedback" class="invite-copy-feedback" role="status" aria-live="polite"></p>
+          <p id="invite-network-note" class="invite-network-note" hidden>อุปกรณ์อื่นสแกนลิงก์ localhost ไม่ได้ · เปิดเว็บด้วย IP ของเครื่องโฮสต์บน Wi-Fi เดียวกันก่อน</p>
+          <button id="copy-invite-dialog" class="button button-invite-dialog" type="button">คัดลอกลิงก์ชวน</button>
+        </div>
+      </dialog>
 
       <footer class="site-footer">
         <span>ห้องที่ดีเริ่มจากเพลงแรก</span>

@@ -17,6 +17,7 @@ Open `http://127.0.0.1:4173`. To let other devices on the same network join, set
 ## Room and queue behavior
 
 - Create a room with a five-character invite code or join with a code or link.
+- Display a scannable QR code or copy an invite link; guests on other devices should use the host's LAN address.
 - Rooms accept up to 16 players.
 - The creator starts as host and can transfer host rights, remove a player, or close the room.
 - Room state is sent to all connected players over Server-Sent Events.

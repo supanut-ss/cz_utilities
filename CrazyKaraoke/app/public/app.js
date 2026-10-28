@@ -3,6 +3,7 @@ const roomView = document.querySelector("#room-view");
 const skipLink = document.querySelector(".skip-link");
 const entryFeedback = document.querySelector("#entry-feedback");
 const roomFeedback = document.querySelector("#room-feedback");
+const inviteDialog = document.querySelector("#invite-dialog");
 const activeRoomKey = "karaoke-club-room";
 const nicknameKey = "karaoke-club-nickname";
 let eventSource = null;
@@ -79,6 +80,7 @@ function savePlayerPreferences(nickname, roomCode) {
 
 function showEntry(message = "") {
   const leavingRoom = !roomView.hidden;
+  if (inviteDialog.open) inviteDialog.close();
   releaseMicrophone();
   lastScoredEntryId = "";
   if (eventSource) eventSource.close();
@@ -1329,14 +1331,81 @@ async function removeRoomPlayer(player) {
   }
 }
 
+function getInviteLink(roomCode = roomState?.roomCode) {
+  if (!roomCode) return "";
+  return new URL(`/?room=${encodeURIComponent(roomCode)}`, window.location.origin).toString();
+}
+
+function setInviteCopyFeedback(message) {
+  if (inviteDialog.open) {
+    document.querySelector("#invite-copy-feedback").textContent = message;
+  } else {
+    setRoomMessage(message);
+  }
+}
+
+function createInviteQr(inviteUrl, roomCode) {
+  const qrCode = window.qrcodegen.QrCode.encodeText(inviteUrl, window.qrcodegen.QrCode.Ecc.MEDIUM);
+  const quietZone = 4;
+  const dimension = qrCode.size + quietZone * 2;
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.classList.add("invite-qr-code");
+  svg.setAttribute("viewBox", `0 0 ${dimension} ${dimension}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `QR สำหรับเข้าห้อง ${roomCode}`);
+  svg.setAttribute("focusable", "false");
+
+  const background = document.createElementNS(namespace, "rect");
+  background.setAttribute("width", String(dimension));
+  background.setAttribute("height", String(dimension));
+  background.setAttribute("fill", "#ffffff");
+
+  const darkModules = [];
+  for (let y = 0; y < qrCode.size; y++) {
+    for (let x = 0; x < qrCode.size; x++) {
+      if (qrCode.getModule(x, y)) darkModules.push(`M${x + quietZone},${y + quietZone}h1v1h-1z`);
+    }
+  }
+  const modules = document.createElementNS(namespace, "path");
+  modules.setAttribute("d", darkModules.join(""));
+  modules.setAttribute("fill", "#171521");
+  svg.append(background, modules);
+  return svg;
+}
+
+function showInviteQr() {
+  if (!roomState) return;
+  const inviteUrl = getInviteLink();
+  const qr = document.querySelector("#invite-qr");
+  const link = document.querySelector("#invite-url");
+  qr.replaceChildren();
+  document.querySelector("#invite-room-code").textContent = roomState.roomCode;
+  link.href = inviteUrl;
+  link.textContent = inviteUrl;
+
+  const hostname = window.location.hostname.replace(/^\[|\]$/g, "");
+  document.querySelector("#invite-network-note").hidden = !["localhost", "::1"].includes(hostname) && !/^127(?:\.\d{1,3}){3}$/.test(hostname);
+  try {
+    qr.append(createInviteQr(inviteUrl, roomState.roomCode));
+  } catch {
+    const error = document.createElement("p");
+    error.className = "invite-qr-error";
+    error.textContent = "สร้าง QR ไม่สำเร็จ · ใช้รหัสห้องด้านล่างเพื่อเข้าร่วมแทน";
+    qr.append(error);
+  }
+  inviteDialog.showModal();
+}
+
 async function copyInviteLink() {
   if (!roomState) return;
-  const inviteUrl = new URL(`/?room=${encodeURIComponent(roomState.roomCode)}`, window.location.origin).toString();
+  const inviteUrl = getInviteLink();
   try {
     await navigator.clipboard.writeText(inviteUrl);
-    setRoomMessage("คัดลอกลิงก์ชวนแล้ว ส่งให้เพื่อนได้เลย");
+    setInviteCopyFeedback("คัดลอกลิงก์ชวนแล้ว ส่งให้เพื่อนได้เลย");
   } catch {
     window.prompt("คัดลอกลิงก์นี้เพื่อชวนเพื่อน", inviteUrl);
+    setInviteCopyFeedback("ลิงก์แสดงอยู่ด้านบน หากคัดลอกอัตโนมัติไม่ได้ ให้แตะค้างที่ลิงก์");
   }
 }
 
@@ -1385,6 +1454,12 @@ document.querySelector("#join-form").addEventListener("submit", async (event) =>
 });
 
 document.querySelector("#invite-button").addEventListener("click", copyInviteLink);
+document.querySelector("#show-qr-button").addEventListener("click", showInviteQr);
+document.querySelector("#close-invite-dialog").addEventListener("click", () => inviteDialog.close());
+document.querySelector("#copy-invite-dialog").addEventListener("click", copyInviteLink);
+inviteDialog.addEventListener("click", (event) => {
+  if (event.target === inviteDialog) inviteDialog.close();
+});
 document.querySelector("#play-song-button").addEventListener("click", startOrContinueSong);
 document.querySelector("#skip-song-button").addEventListener("click", skipCurrentSong);
 document.querySelector("#enable-mic-button").addEventListener("click", enableMicrophone);

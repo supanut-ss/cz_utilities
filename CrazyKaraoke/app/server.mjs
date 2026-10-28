@@ -766,6 +766,7 @@ async function handleRequest(request, response) {
       ["/index.html", ["index.html", "text/html; charset=utf-8"]],
       ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
       ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
+      ["/qrcodegen.js", ["qrcodegen.js", "text/javascript; charset=utf-8"]],
     ]);
     const file = files.get(url.pathname);
     if (!file) throw new HttpError(404, "ไม่พบหน้านี้", "not_found");
