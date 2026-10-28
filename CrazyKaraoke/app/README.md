@@ -24,7 +24,7 @@ Open `http://127.0.0.1:4173`. To let other devices on the same network join, set
 - A random, HttpOnly session cookie identifies the player after refresh. Disconnected players remain in the room and appear offline until they reconnect or leave.
 - Search runs on the server and only returns embeddable videos. Queue additions are checked against YouTube's current embed status; the queue shows the requester, duration, and Made for Kids status when available. Each player can queue up to three songs, add requests are rate limited, and the room queue is capped at 50 songs.
 - Room members can report a problem with the current video once per song; the room sees only the aggregate count and reason totals.
-- The host controls the IFrame Player and native fullscreen control. Playback state is shared with the room; when the host returns on a new player, the song restarts from the beginning.
+- The host controls the IFrame Player and native fullscreen. The link above the player opens the current video on YouTube.com so the host can use YouTube's Cast control and launch the YouTube app on the TV. Local playback pauses. The app does not receive play, pause, or end events from that external session; the host marks the song ended in the room. When the host returns on a new player, the song restarts from the beginning.
 - The singer can opt in to reference-free microphone scoring for any video. Audio analysis stays in the singer's browser; only the score summary is sent to the server. Listeners can vote after playback ends when microphone data is unavailable.
 - Names, room codes, and state stay in the local server process. YouTube Data API handles search and video checks; the browser loads YouTube's IFrame Player API for playback.
 
@@ -32,7 +32,7 @@ Rooms are held in memory and disappear when the server process stops. Microphone
 
 ## Scope
 
-The current implementation covers room creation, nicknames, presence, invitations, reconnection, host transfer and removal, YouTube search, a shared queue, host-controlled playback, current-song reports, opt-in microphone scoring, and listener votes. The host device plays the video; other participants see the shared song, singer, playback state, and score summary. Cast remains for a later phase. Manual multi-browser and device verification is still pending.
+The current implementation covers room creation, nicknames, presence, invitations, reconnection, host transfer and removal, YouTube search, a shared queue, host-controlled playback, current-song reports, opt-in microphone scoring, and listener votes. The host device plays the video; other participants see the shared song, singer, playback state, and score summary. The YouTube handoff link is placed above the player. Google does not document a public YouTube IFrame API command for a third-party site to launch YouTube Cast directly, so the host still selects the TV in YouTube. The app cannot automatically detect when that TV session ends.
 
 ## Score behavior
 

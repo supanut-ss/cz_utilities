@@ -42,6 +42,7 @@ let scoreSubmissionPending = false;
 let reportSubmissionPending = false;
 let reportFeedbackMessage = "";
 let roomRecoveryPending = false;
+let externalYoutubeCastEntryId = "";
 
 function setEntryMessage(message, isError = false) {
   entryFeedback.textContent = message;
@@ -92,6 +93,7 @@ function showEntry(message = "") {
   cuedVideoId = "";
   playerNeedsRestart = false;
   expectedPlayback = null;
+  externalYoutubeCastEntryId = "";
   if (youtubePlayerReady) {
     try {
       youtubePlayer.stopVideo();
@@ -120,6 +122,7 @@ function showRoom(room) {
   const previousEntryId = roomState?.currentSong?.id || "";
   const currentEntryId = room.currentSong?.id || "";
   if (previousEntryId !== currentEntryId) {
+    externalYoutubeCastEntryId = "";
     lastScoredEntryId = "";
     if (micStream && micEntryId !== currentEntryId) releaseMicrophone();
     document.querySelector("#scoring-feedback").textContent = "";
@@ -176,7 +179,9 @@ function showRoom(room) {
     stageKicker.textContent = playbackLabels[room.playbackState] || "เพลงบนเวที";
     document.querySelector("#stage-title").textContent = currentSong.title;
     document.querySelector("#singer-label").textContent = `ร้องโดย ${singer?.nickname || currentSong.requesterName}`;
-    document.querySelector("#stage-hint").textContent = stageHints[room.playbackState] || "ทุกคนเห็นเพลงและผู้ร้องคนเดียวกันในห้องนี้";
+    document.querySelector("#stage-hint").textContent = externalYoutubeCastEntryId === currentSong.id
+      ? "เปิดเพลงใน YouTube เพื่อ Cast แล้ว · แอปไม่รับสถานะจากทีวี กลับมาแจ้งเพลงจบเอง"
+      : stageHints[room.playbackState] || "ทุกคนเห็นเพลงและผู้ร้องคนเดียวกันในห้องนี้";
   } else {
     stageKicker.textContent = "ไมค์อยู่ที่ใคร";
     document.querySelector("#stage-title").textContent = "เวทีว่างอยู่";
@@ -273,7 +278,7 @@ function ensureYoutubePlayer() {
             youtubePlayerReady = true;
             youtubePlayerLoading = false;
             youtubePlayerError = false;
-            setPlayerMessage("ตัวเล่นพร้อม · ใช้ปุ่มควบคุมและเต็มจอของ YouTube");
+            setPlayerMessage("ตัวเล่นพร้อม · ใช้ปุ่มเปิด YouTube เพื่อส่งเพลงไปทีวี");
             syncPlayerToRoom();
             if (initialVideoId && roomState?.currentSong?.videoId === initialVideoId && roomState.playbackState === "playing" && roomState.viewerId === roomState.hostPlayerId) {
               playerNeedsRestart = true;
@@ -415,9 +420,9 @@ function applyPlayerEvent(playerEvent) {
 }
 
 async function reportPlaybackState(state, videoId, entryId, errorCode = null) {
-  if (!roomState || roomState.viewerId !== roomState.hostPlayerId || roomState.currentSong?.id !== entryId || roomState.currentSong.videoId !== videoId) return;
+  if (!roomState || roomState.viewerId !== roomState.hostPlayerId || roomState.currentSong?.id !== entryId || roomState.currentSong.videoId !== videoId) return false;
   const signature = `${entryId}:${videoId}:${state}:${errorCode || ""}`;
-  if (lastReportedPlayback === signature) return;
+  if (lastReportedPlayback === signature) return false;
   lastReportedPlayback = signature;
   const roomCode = roomState.roomCode;
   try {
@@ -426,12 +431,14 @@ async function reportPlaybackState(state, videoId, entryId, errorCode = null) {
       body: JSON.stringify({ state, videoId, entryId, errorCode }),
     });
     if (roomState?.roomCode === roomCode && roomState.currentSong?.id === entryId) showRoom(response.room);
+    return true;
   } catch (error) {
-    if (roomState?.roomCode !== roomCode || roomState.currentSong?.id !== entryId) return;
+    if (roomState?.roomCode !== roomCode || roomState.currentSong?.id !== entryId) return false;
     if (error.message !== "สถานะเพลงเปลี่ยนแล้ว") {
       lastReportedPlayback = "";
       setPlayerMessage(error.message, true);
     }
+    return false;
   }
 }
 
@@ -440,6 +447,8 @@ function renderPlayback(room, isHost) {
   const artwork = document.querySelector("#stage-art");
   const stageMain = document.querySelector(".stage-main");
   const playButton = document.querySelector("#play-song-button");
+  const youtubeCastLink = document.querySelector("#youtube-cast-link");
+  const finishCastButton = document.querySelector("#finish-cast-button");
   const skipButton = document.querySelector("#skip-song-button");
   const currentSong = room.currentSong;
   const activePlayback = currentSong && ["ready", "playing", "paused"].includes(room.playbackState);
@@ -452,9 +461,14 @@ function renderPlayback(room, isHost) {
   const canResume = currentSong && room.playbackState === "paused";
   const canStartCurrent = currentSong && room.playbackState === "ready";
   const canStart = Boolean(canStartNext && room.queue.length) || Boolean(canResume) || Boolean(canStartCurrent);
+  youtubeCastLink.hidden = !isHost || !activePlayback;
+  youtubeCastLink.href = currentSong ? `https://www.youtube.com/watch?v=${encodeURIComponent(currentSong.videoId)}` : "https://www.youtube.com/";
+  youtubeCastLink.setAttribute("aria-label", currentSong ? `เปิด ${currentSong.title} บน YouTube ในแท็บใหม่เพื่อ Cast` : "เปิด YouTube เพื่อ Cast");
+  finishCastButton.hidden = !isHost || externalYoutubeCastEntryId !== currentSong?.id || !["playing", "paused"].includes(room.playbackState);
   playButton.hidden = !isHost || room.playbackState === "playing";
   playButton.disabled = !canStart || (youtubePlayerLoading && (canResume || canStartCurrent));
-  if (canResume) playButton.textContent = playerNeedsRestart ? "เริ่มเพลงนี้อีกครั้ง" : youtubePlayerReady ? "เล่นต่อ" : youtubePlayerLoading ? "กำลังโหลด Player" : "โหลด Player เพื่อเล่นต่อ";
+  if (externalYoutubeCastEntryId === currentSong?.id && canResume) playButton.textContent = "กลับมาเล่นในแอป";
+  else if (canResume) playButton.textContent = playerNeedsRestart ? "เริ่มเพลงนี้อีกครั้ง" : youtubePlayerReady ? "เล่นต่อ" : youtubePlayerLoading ? "กำลังโหลด Player" : "โหลด Player เพื่อเล่นต่อ";
   else if (canStartCurrent) playButton.textContent = youtubePlayerReady ? "แตะเพื่อเริ่มเพลงนี้" : youtubePlayerLoading ? "กำลังโหลด Player" : "โหลด Player อีกครั้ง";
   else playButton.textContent = room.queue.length ? "เริ่มเพลงถัดไป" : "คิวหมดแล้ว";
   skipButton.hidden = !isHost || !currentSong || room.playbackState === "awaiting_score";
@@ -1127,6 +1141,12 @@ async function startOrContinueSong() {
   const currentSong = roomState.currentSong;
   const currentPlaybackState = roomState.playbackState;
 
+  if (externalYoutubeCastEntryId === currentSong?.id && ["ready", "paused"].includes(currentPlaybackState)) {
+    externalYoutubeCastEntryId = "";
+    setPlayerMessage("กลับมาเล่นในแอปแล้ว · หากทีวียัง Cast อยู่ ให้หยุด Cast ใน YouTube ก่อน");
+    showRoom(roomState);
+  }
+
   if (currentSong && currentPlaybackState === "playing") return;
   if (currentSong && ["ready", "paused"].includes(currentPlaybackState)) {
     if (!youtubePlayerReady) {
@@ -1168,6 +1188,32 @@ async function startOrContinueSong() {
     button.disabled = false;
     setRoomMessage(error.message, true);
   }
+}
+
+async function finishExternalYoutubeCast() {
+  if (!roomState?.currentSong || roomState.viewerId !== roomState.hostPlayerId || externalYoutubeCastEntryId !== roomState.currentSong.id) return;
+  const song = roomState.currentSong;
+  const button = document.querySelector("#finish-cast-button");
+  button.disabled = true;
+  const reported = await reportPlaybackState("ended", song.videoId, song.id);
+  if (reported) {
+    externalYoutubeCastEntryId = "";
+    setPlayerMessage("แจ้งว่าเพลงบนทีวีจบแล้ว · ห้องเปิดให้โหวตคะแนน");
+    if (roomState) renderPlayback(roomState, roomState.viewerId === roomState.hostPlayerId);
+  } else if (roomState?.currentSong?.id === song.id) {
+    button.disabled = false;
+  }
+}
+
+function openYoutubeForCast() {
+  if (!roomState?.currentSong || roomState.viewerId !== roomState.hostPlayerId) return;
+  const song = roomState.currentSong;
+  externalYoutubeCastEntryId = song.id;
+  pendingPlayerEvent = null;
+  if (youtubePlayerReady && getYoutubeVideoId() === song.videoId) youtubePlayer.pauseVideo();
+  setPlayerMessage("เปิด YouTube ในแท็บใหม่แล้ว · กด Cast ใน YouTube และแจ้งเพลงจบที่นี่");
+  if (roomState.playbackState !== "paused") reportPlaybackState("paused", song.videoId, song.id);
+  renderPlayback(roomState, true);
 }
 
 async function skipCurrentSong() {
@@ -1461,6 +1507,8 @@ inviteDialog.addEventListener("click", (event) => {
   if (event.target === inviteDialog) inviteDialog.close();
 });
 document.querySelector("#play-song-button").addEventListener("click", startOrContinueSong);
+document.querySelector("#youtube-cast-link").addEventListener("click", openYoutubeForCast);
+document.querySelector("#finish-cast-button").addEventListener("click", finishExternalYoutubeCast);
 document.querySelector("#skip-song-button").addEventListener("click", skipCurrentSong);
 document.querySelector("#enable-mic-button").addEventListener("click", enableMicrophone);
 document.querySelector("#stop-mic-button").addEventListener("click", () => {
