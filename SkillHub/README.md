@@ -4,7 +4,7 @@ A local-first desktop application for collecting Markdown AI skills and assignin
 
 ## Run the packaged application
 
-Open `release/SkillHub-0.4.0-Windows-x64.exe` on Windows x64. Close an older running version before opening this release. The portable application does not require an installer. Windows may show its unsigned-publisher warning because this build has no code-signing certificate.
+Open `release/SkillHub-1.0.0-Windows-x64.exe` on Windows x64. Close an older running version before opening this release. The portable application does not require an installer. Windows may show its unsigned-publisher warning because this build has no code-signing certificate.
 
 ## Workflow
 

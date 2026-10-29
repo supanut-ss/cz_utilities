@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import packageInfo from '../package.json';
 import { Layers, Blocks, Bot, FolderOpen, Search, Plus, Upload, Download, Pencil, Trash2, Check, X, ArrowUpRight, FileText, ChevronRight, AlertCircle, LoaderCircle, Monitor, Package, Settings2 } from 'lucide-react';
 import { api, isBrowserPreview } from './browser-adapter.js';
 import { RepositoryImport, InstallToAI } from './NativeWorkflows.jsx';
@@ -208,7 +209,7 @@ export default function App() {
       <div className="sidebar-bottom"><div className="local-label"><Monitor size={16} /><span>{isBrowserPreview ? 'โหมดตัวอย่างเบราว์เซอร์' : 'บันทึกบนเครื่อง Windows'}</span></div><button className="text-button" disabled={busy || isBrowserPreview} onClick={() => action(() => api.openDataFolder())}><FolderOpen size={16} />เปิดโฟลเดอร์ข้อมูล</button><span className="sidebar-caption">{isBrowserPreview ? 'ข้อมูลแยกจากแอปเดสก์ท็อป' : 'ไม่ต้องใช้บัญชีหรือ API key'}</span></div>
     </aside>
     <main className="main">
-      <header className="app-header"><span>พื้นที่ส่วนตัว <ChevronRight size={14} />{page === 'library' ? 'คลัง Skill' : 'AI ของฉัน'}</span><span className="app-version">Skill Hub · Windows</span></header>
+      <header className="app-header"><span>พื้นที่ส่วนตัว <ChevronRight size={14} />{page === 'library' ? 'คลัง Skill' : 'AI ของฉัน'}</span><span className="app-version">Skill Hub · Windows · v{packageInfo.version}</span></header>
       <div className="workspace">
         {!isBrowserPreview && page === 'library' && <div className="discovery-banner" role="status"><Monitor size={19} /><div><strong>{scanning ? 'กำลังค้นหา Skill บนเครื่อง…' : scanError ? 'ค้นหา Skill บนเครื่องไม่สำเร็จ' : discovery ? `พบ ${discovery.items.length} Skill บนเครื่อง` : 'ค้นหา Skill ที่ติดตั้งไว้'}</strong><p>{scanError || 'อ่านจากโฟลเดอร์ Skill ของ AI ที่รู้จัก โดยไม่แก้ไขไฟล์ต้นฉบับ'}</p></div><button className="button" disabled={busy || scanning} onClick={() => { setModal({ type: 'discovery' }); if (!discovery || scanError) refreshDiscovery(); }}><Search size={16} />ดู Skill บนเครื่อง</button></div>}
         {isBrowserPreview && <div className="preview-banner"><Monitor size={17} /><span>กำลังแสดงตัวอย่างในเบราว์เซอร์ ข้อมูลเก็บเฉพาะเบราว์เซอร์นี้ การนำเข้าคลังโค้ด นำเข้าและส่งออกโฟลเดอร์ และติดตั้งให้ AI ใช้ในแอป Windows</span></div>}

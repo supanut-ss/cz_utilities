@@ -2,10 +2,11 @@
 
 Verified on Windows x64, 2026-10-29.
 
-## Version 0.4 automatic machine transfer
+## Version 1.0.0 release and automatic machine transfer
 
-- Production renderer build passed with Vite 6.4.5 (1,584 modules), and the Windows x64 portable executable was packaged with Electron Builder 26.18.0 and Electron 45.1.0 at `release/SkillHub-0.4.0-Windows-x64.exe`.
+- Production renderer build passed with Vite 6.4.5 (1,584 modules), and the Windows x64 portable executable was packaged with Electron Builder 26.18.0 and Electron 45.1.0 at `release/SkillHub-1.0.0-Windows-x64.exe`.
 - All 55 unit tests passed, including the 201-skill batching case that verifies installer plans remain at or below 200 skills.
+- `npm run test:desktop` passed and confirmed the app header displays `v1.0.0` from the package version.
 - `npm run test:migration:desktop` passed against the source app and `release/win-unpacked/Skill Hub.exe`. In isolated source and destination homes it verified transfer-package export, automatic sidecar discovery, support-file and GitHub provenance retention, preservation of destination data, installation to detected Codex, skipping missing Claude Code, idempotent replay, and restart suppression after restore.
 - The portable self-extractor was built, but Playwright could not attach to its wrapper process for direct UI automation. Its packaged application payload passed the complete desktop transfer smoke test; direct interaction with the outer self-extractor remains unverified.
 

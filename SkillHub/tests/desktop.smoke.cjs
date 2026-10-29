@@ -2,6 +2,7 @@ const { _electron: electron } = require('playwright');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const packageInfo = require('../package.json');
 const root = path.resolve(__dirname, '..');
 const testRoot = path.join(root, '.test-data', 'desktop-' + Date.now());
 (async () => {
@@ -22,6 +23,7 @@ const testRoot = path.join(root, '.test-data', 'desktop-' + Date.now());
     const errors=[];
     page.on('pageerror',error=>errors.push(error.message));
     await page.getByRole('heading',{name:'คลัง Skill',exact:true}).waitFor();
+    assert.equal((await page.locator('.app-version').textContent()).trim(), `Skill Hub · Windows · v${packageInfo.version}`);
     assert.equal(await page.locator('.preview-banner').count(),0);
     const initial=await page.evaluate(()=>window.skillHub.getState());
     assert.equal(initial.skills.length,0); assert.equal(initial.profiles.length,4);
