@@ -29,17 +29,19 @@ using Microsoft.Win32.SafeHandles;
 static class Program
 {
     const string Usage =
-@"Disk Cleaner - find junk files and free up space safely
+@"Disk Cleaner @VERSION@ - find junk files and free up space safely
 
   DiskCleaner.exe                  open the window
   DiskCleaner.exe --cli [options]  command line; scans only unless -Execute is given
+  DiskCleaner.exe --version        print the version
 
 Options:
   -Execute              delete the junk (asks first unless -Force)
   -Force                skip the confirmation and the separate scan pass
   -AiApps               also clean AI app caches (Claude, ChatGPT/Codex, Cursor, ...)
   -DevCaches            also clean npm, Yarn, pip, NuGet, Gradle, Go, Cargo caches
-  -Deep                 also empty the Recycle Bin and run DISM cleanup (admin)
+  -Deep                 also empty the Recycle Bin, run DISM cleanup, remove Windows
+                        upgrade leftovers and Windows.old (admin)
   -MinAgeDays <n>       only files not touched for n days (default 1)
   -Only <names>         only these categories, e.g. -Only UserTemp,npm
   -ExtraPath <folders>  also clean these folders (moved to the Recycle Bin)
@@ -69,6 +71,7 @@ For the window: -Theme System|Light|Dark.
             var first = args[0].ToLowerInvariant();
             if (first == "--cli") return RunCli(args, 1);
             if (first == "--help" || first == "-h" || first == "/?") return RunCli(args, args.Length); // prints usage
+            if (first == "--version" || first == "-v") { ConnectConsole(); Console.Out.WriteLine("@VERSION@"); return 0; }
         }
         return RunGui(args);
     }

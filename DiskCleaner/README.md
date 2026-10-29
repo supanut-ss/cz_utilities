@@ -1,5 +1,7 @@
 # Disk Cleaner
 
+**Version 1.0.0**
+
 Fast, safe junk-file cleaner for Windows 10/11 — a window app, a command-line
 tool, and a single-file `.exe` that embeds both. Scans well-known junk
 locations (temp folders, browser/app caches, crash dumps, Windows Update
@@ -194,8 +196,13 @@ start /wait dist\DiskCleaner.exe --cli -AiApps -DevCaches
 ## Building `DiskCleaner.exe`
 
 ```bash
-powershell -ExecutionPolicy Bypass -File .\build\Build-Exe.ps1 -Version 1.0.0
+powershell -ExecutionPolicy Bypass -File .\build\Build-Exe.ps1
 ```
+
+The version comes from `$DiskCleanerVersion` in `DiskCleaner.Core.ps1` (the one
+place to change it); `-Version x.y.z` overrides it for a single build. It shows
+in the window header, at the top of a CLI run, in `DiskCleaner.exe --version`
+and in the exe's file properties.
 
 Uses only what ships with Windows — the .NET Framework C# compiler
 (`csc.exe`) and the PowerShell 5.1 engine — no extra tooling to install. The

@@ -164,6 +164,7 @@ try {
     $cmdNames = @($selected | Where-Object { $_.CleanCmd } | ForEach-Object { $_.Name })
     $fileTargets = [DiskCleaner.Target[]]@($targets | Where-Object { $_.Category -notin $cmdNames })
     $sw = [Diagnostics.Stopwatch]::StartNew()
+    Write-Host "Disk Cleaner $DiskCleanerVersion"
 
     # Scan pass (skipped with -Execute -Force: the delete pass reports what it freed).
     if (-not ($Execute -and $Force)) {

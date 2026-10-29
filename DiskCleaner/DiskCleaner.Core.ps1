@@ -2,6 +2,8 @@
 # Shared engine, category catalog and helpers for DiskCleaner.ps1 (CLI) and
 # DiskCleanerGui.ps1 (GUI). Dot-source it; it only defines types and functions.
 
+# The one place the version is set; build\Build-Exe.ps1 reads it from here for the exe.
+$DiskCleanerVersion = '1.0.0'
 $DiskCleanerCoreFile = $PSCommandPath
 
 #region Engine ------------------------------------------------------------------

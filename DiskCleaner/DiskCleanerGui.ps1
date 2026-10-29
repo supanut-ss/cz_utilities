@@ -603,7 +603,10 @@ $xamlText = @'
           <TextBlock Text="&#xE75C;" Style="{StaticResource Icon}" FontSize="22" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center"/>
         </Border>
         <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
-          <TextBlock Text="Disk Cleaner" Style="{StaticResource Subtitle}" FontSize="22"/>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="Disk Cleaner" Style="{StaticResource Subtitle}" FontSize="22"/>
+            <TextBlock x:Name="VersionText" Style="{StaticResource Caption}" Margin="8,0,0,3" VerticalAlignment="Bottom"/>
+          </StackPanel>
           <TextBlock Text="Find junk files and free up space safely" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
@@ -820,6 +823,7 @@ foreach ($m in [regex]::Matches($xamlText, 'x:Name="(\w+)"')) {
     $element = $window.FindName($m.Groups[1].Value)
     if ($element) { $ui[$m.Groups[1].Value] = $element }
 }
+$ui.VersionText.Text = "v$DiskCleanerVersion"
 function Get-Brush([string]$Key) { $window.FindResource($Key) }
 #endregion
 

@@ -8,17 +8,22 @@
     the command-line tool with "DiskCleaner.exe --cli ...".
 
 .PARAMETER Version
-    File and product version, e.g. 1.2.0.
+    File and product version, e.g. 1.2.0. Defaults to $DiskCleanerVersion in DiskCleaner.Core.ps1.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\build\Build-Exe.ps1
 #>
-param([ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?$')][string]$Version = '1.0.0')
+param([ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?$')][string]$Version)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationCore, WindowsBase
 
 $root = Split-Path $PSScriptRoot -Parent
+if (-not $Version) {
+    $m = [regex]::Match([IO.File]::ReadAllText((Join-Path $root 'DiskCleaner.Core.ps1')), "(?m)^\`$DiskCleanerVersion = '([\d.]+)'")
+    if (-not $m.Success) { throw '$DiskCleanerVersion not found in DiskCleaner.Core.ps1' }
+    $Version = $m.Groups[1].Value
+}
 $obj = Join-Path $PSScriptRoot 'obj'
 $dist = Join-Path $root 'dist'
 foreach ($d in $obj, $dist) { [void][IO.Directory]::CreateDirectory($d) }
