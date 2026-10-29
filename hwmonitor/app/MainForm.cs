@@ -405,12 +405,15 @@ internal sealed class MainForm : Form
         {
             try
             {
-                if (process.Id == Environment.ProcessId) continue;
+                if (process.Id == Environment.ProcessId || AutoCaptureExcludedProcesses.Contains(process.ProcessName)) continue;
+                var window = process.MainWindowHandle;
+                if (window == IntPtr.Zero || !IsWindowVisible(window)) continue;
+                var executablePath = process.MainModule?.FileName;
+                if (string.IsNullOrWhiteSpace(executablePath) || !IsSupportedGamePath(executablePath)) continue;
                 var title = process.MainWindowTitle;
-                if (process.MainWindowHandle == IntPtr.Zero && string.IsNullOrWhiteSpace(title)) continue;
                 processes.Add(new GameProcess(process.Id, process.ProcessName, title));
             }
-            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or ArgumentException)
+            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or ArgumentException or NotSupportedException)
             {
                 // The process may exit while the app list is being collected.
             }

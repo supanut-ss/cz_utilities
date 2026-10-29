@@ -1353,7 +1353,7 @@ function renderProcesses(data) {
   const select = $('game-process');
   const selected = select.value;
   gameProcesses = Array.isArray(data.processes) ? data.processes : [];
-  select.innerHTML = '<option value="">Select a running app</option>' + gameProcesses.map((p) =>
+  select.innerHTML = '<option value="">Select a running game</option>' + gameProcesses.map((p) =>
     `<option value="${Number(p.id)}">${esc(p.title || p.name)} · ${esc(p.name)} (PID ${Number(p.id)})</option>`).join('');
   if (gameProcesses.some((p) => String(p.id) === selected)) select.value = selected;
   updateGameControls();
