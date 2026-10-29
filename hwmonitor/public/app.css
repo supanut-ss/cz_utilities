@@ -87,7 +87,9 @@ nav a {
 nav a svg { color: var(--c); opacity: .85; }
 nav a:hover { background: var(--panel); color: var(--text); }
 nav a.active { background: var(--panel-2); color: var(--text); box-shadow: inset 2px 0 0 var(--c); }
-.sidebar-foot { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 12px; color: var(--muted); }
+.sidebar-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 10px; font-size: 12px; color: var(--muted); }
+.connection-state { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.app-version { flex: 0 0 auto; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 .live-dot.on { background: var(--ok); box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); animation: pulse 2s infinite; }
 @keyframes pulse { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
