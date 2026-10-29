@@ -1,0 +1,233 @@
+.add-skill-options {
+  gap: 12px;
+}
+
+.add-skill-options > p {
+  line-height: 1.7;
+}
+
+.add-skill-option {
+  width: 100%;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  white-space: normal;
+}
+
+.add-skill-option:not(:disabled):hover {
+  border-color: var(--accent);
+  background: var(--tint);
+}
+
+.add-skill-option-icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--soft);
+  color: var(--accent);
+}
+
+.add-skill-option-copy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 4px;
+}
+
+.add-skill-option-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.add-skill-option-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.add-skill-options-note {
+  margin-top: 2px;
+}
+
+.assignment-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.native-install-action {
+  order: 8;
+  margin: 16px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.assignment-body > .export-button {
+  order: 9;
+}
+
+.assignment-body > .export-note {
+  order: 10;
+}
+
+.native-install-action .help-text {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.skill-kind-filter {
+  width: max-content;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 13px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--soft);
+}
+
+.skill-kind-filter > button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.skill-kind-filter > button[aria-pressed="true"] {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.skill-kind-count {
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.skill-kind-filter > button[aria-pressed="true"] .skill-kind-count {
+  background: var(--tint);
+  color: var(--accent);
+}
+
+.skill-kind-tag {
+  padding: 3px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.skill-kind-tag.is-custom {
+  background: var(--tint);
+  color: var(--accent);
+}
+
+.skill-kind-tag.is-premade {
+  background: var(--soft);
+  color: var(--muted);
+}
+
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  color: var(--accent);
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.repo-link:hover,
+.repository-origin-url:hover {
+  text-decoration: underline;
+}
+
+.repository-origin {
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--background);
+}
+
+.repository-origin-content {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.repository-origin-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.repository-origin-title > svg {
+  color: var(--accent);
+}
+
+.repository-origin-url {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  color: var(--accent);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.repository-origin-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.repository-origin-meta code {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 620px) {
+  .add-skill-option {
+    min-height: 68px;
+    padding: 11px;
+  }
+
+  .skill-kind-filter {
+    width: 100%;
+  }
+
+  .skill-kind-filter > button {
+    min-width: 0;
+    flex: 1;
+  }
+}

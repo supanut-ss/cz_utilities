@@ -122,7 +122,14 @@ else {
       show: process.env.SKILL_HUB_TEST_MODE !== '1',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, backgroundThrottling: process.env.SKILL_HUB_TEST_MODE !== '1' }
     });
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    window.webContents.setWindowOpenHandler(({ url }) => {
+      let externalUrl;
+      try { externalUrl = new URL(url); } catch { return { action: 'deny' }; }
+      if (externalUrl.protocol === 'https:' && externalUrl.hostname === 'github.com' && !externalUrl.username && !externalUrl.password && !externalUrl.port) {
+        void shell.openExternal(externalUrl.toString()).catch(error => console.error('Unable to open GitHub repository', error));
+      }
+      return { action: 'deny' };
+    });
     window.on('close', event => {
       if (activeWrites > 0) {
         event.preventDefault();
