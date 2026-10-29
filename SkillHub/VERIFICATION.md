@@ -4,9 +4,10 @@ Verified on Windows x64, 2026-10-29.
 
 ## Version 0.4 automatic machine transfer
 
-- Production renderer build passed with Vite 6.4.5 (1,584 modules).
-- Windows x64 portable packaging completed with Electron Builder 26.18.0 and Electron 45.1.0. The artifact is `release/SkillHub-0.4.0-Windows-x64.exe`.
-- A two-machine transfer roundtrip, sidecar startup, destination installation, replay, and malformed-package handling have not been runtime-verified for version 0.4. The successful build and packaging confirm compilation and packaging only.
+- Production renderer build passed with Vite 6.4.5 (1,584 modules), and the Windows x64 portable executable was packaged with Electron Builder 26.18.0 and Electron 45.1.0 at `release/SkillHub-0.4.0-Windows-x64.exe`.
+- All 55 unit tests passed, including the 201-skill batching case that verifies installer plans remain at or below 200 skills.
+- `npm run test:migration:desktop` passed against the source app and `release/win-unpacked/Skill Hub.exe`. In isolated source and destination homes it verified transfer-package export, automatic sidecar discovery, support-file and GitHub provenance retention, preservation of destination data, installation to detected Codex, skipping missing Claude Code, idempotent replay, and restart suppression after restore.
+- The portable self-extractor was built, but Playwright could not attach to its wrapper process for direct UI automation. Its packaged application payload passed the complete desktop transfer smoke test; direct interaction with the outer self-extractor remains unverified.
 
 - Production renderer build passed with Vite 6.4.5.
 - Store, discovery, repository and installer suites: 46 tests, 43 passed and 3 skipped. The skipped tests require permission to create Windows symlinks; static checks reject symlinks, but those paths were not exercised by this host.

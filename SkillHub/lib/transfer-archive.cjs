@@ -1,4 +1,5 @@
 const fs = require('node:fs/promises');
+const nativeFs = require('node:fs');
 const { createWriteStream, createReadStream } = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
@@ -87,21 +88,25 @@ async function extractArchive(source, destination) {
   await ancestry(source);
   const stat = await fs.lstat(source);
   if (!stat.isFile() || stat.size > LIMITS.packageBytes) fail('ชุดย้ายเครื่องต้องเป็นไฟล์ปกติ ขนาดไม่เกิน 512 MB');
-  const handle = await fs.open(source, 'r');
+  const archiveFd = await new Promise((resolve, reject) => nativeFs.open(source, 'r', (error, fd) => error ? reject(error) : resolve(fd)));
+  let verifier;
+  let archiveClosedHandle = false;
   try {
-    const opened = await handle.stat();
-    if (opened.ino !== stat.ino || opened.dev !== stat.dev || opened.size !== stat.size) fail('ไฟล์ย้ายเครื่องเปลี่ยนระหว่างอ่าน');
-    const before = await hashHandle(handle, LIMITS.packageBytes);
+    verifier = await fs.open(source, 'r');
+    const opened = await new Promise((resolve, reject) => nativeFs.fstat(archiveFd, (error, result) => error ? reject(error) : resolve(result)));
+    const verifierOpened = await verifier.stat();
+    if (opened.ino !== stat.ino || opened.dev !== stat.dev || opened.size !== stat.size || verifierOpened.ino !== opened.ino || verifierOpened.dev !== opened.dev || verifierOpened.size !== opened.size) fail('ไฟล์ย้ายเครื่องเปลี่ยนระหว่างอ่าน');
+    const before = await hashHandle(verifier, LIMITS.packageBytes);
     const files = [];
     let total = 0;
     await new Promise((resolve, reject) => {
-      yauzl.fromFd(handle.fd, { lazyEntries: true, strictFileNames: true, validateEntrySizes: true, autoClose: false }, (error, archive) => {
+      yauzl.fromFd(archiveFd, { lazyEntries: true, strictFileNames: true, validateEntrySizes: true, autoClose: false }, (error, archive) => {
         if (error) { reject(new Error('ไฟล์ชุดย้ายเครื่องไม่ใช่ ZIP ที่ถูกต้อง')); return; }
         const seen = new Set(), prefixes = new Map();
         let count = 0, settled = false, actualBytes = 0;
-        const abort = cause => { if (!settled) { settled = true; archive.close(); reject(cause); } };
+        const abort = cause => { if (!settled) { settled = true; archiveClosedHandle = true; archive.close(); reject(cause); } };
         archive.on('error', () => abort(new Error('อ่าน ZIP ชุดย้ายเครื่องไม่ได้')));
-        archive.on('end', () => { if (!settled) { settled = true; archive.close(); resolve(); } });
+        archive.on('end', () => { if (!settled) { settled = true; archiveClosedHandle = true; archive.close(); resolve(); } });
         archive.on('entry', entry => {
           (async () => {
             if (++count > LIMITS.entries) fail('ชุดย้ายเครื่องมีไฟล์เกิน 50,000 รายการ');
@@ -145,11 +150,14 @@ async function extractArchive(source, destination) {
         archive.readEntry();
       });
     });
-    const after = await hashHandle(handle, LIMITS.packageBytes);
-    const finalStat = await handle.stat();
+    const after = await hashHandle(verifier, LIMITS.packageBytes);
+    const finalStat = await verifier.stat();
     if (before.sha256 !== after.sha256 || finalStat.size !== opened.size || finalStat.mtimeMs !== opened.mtimeMs) fail('ไฟล์ย้ายเครื่องเปลี่ยนระหว่างอ่าน กรุณาลองใหม่');
     return { packageHash: before.sha256, files };
-  } finally { await handle.close(); }
+  } finally {
+    if (verifier) await verifier.close();
+    if (!archiveClosedHandle) nativeFs.closeSync(archiveFd);
+  }
 }
 
 module.exports = { LIMITS, validId, safeName, within, ancestry, archivePath, hashFile, writeArchive, extractArchive };

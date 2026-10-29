@@ -88,12 +88,15 @@ Requires Node.js 22 or later and npm.
 npm ci
 npm test
 npm run test:desktop
+npm run test:migration:desktop
 npm run start
 ```
 
 `npm run dev` starts a browser preview at the local URL Vite prints. `npm run start` builds and runs Electron without a development server.
 
 `npm run test:desktop` uses the installed Electron binary and isolated `.test-data/` directories. If your npm configuration disables installation scripts, run `node node_modules/electron/install.js` once after `npm ci`. To check an unpacked build instead, set `SKILL_HUB_EXECUTABLE` to its absolute `Skill Hub.exe` path before running the desktop test.
+
+`npm run test:migration:desktop` exercises transfer between two isolated Windows homes using the source app and, when present, the unpacked packaged app. It checks automatic sidecar discovery, non-destructive library merge, detected-target installation, missing-target reporting and safe replay.
 
 ## Package
 
